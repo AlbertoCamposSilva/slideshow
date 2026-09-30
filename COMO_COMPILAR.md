@@ -35,14 +35,14 @@ Todos esses parâmetros já foram integrados e automatizados no [`build.py`](bui
 Com o `uv` instalado, execute no terminal:
 
 ```bash
-# Compilação preferencial com Nuitka
-uv run --with nuitka --with zstandard python build.py --nuitka
+# Compilação preferencial com Nuitka (usando ambiente isolado)
+uv run --isolated --python 3.12 --with nuitka --with zstandard python build.py --nuitka
 
 # Compilação com PyInstaller
-uv run --with pyinstaller python build.py --pyinstaller
+uv run --isolated --python 3.12 --with pyinstaller python build.py --pyinstaller
 
 # Compilar ambos
-uv run --with nuitka --with pyinstaller --with zstandard python build.py --all
+uv run --isolated --python 3.12 --with nuitka --with pyinstaller --with zstandard python build.py --all
 
 # Limpar artefatos temporários de compilação
 uv run python build.py --clean

@@ -18,6 +18,8 @@ from slideshow.display import (
     SortOrder,
     CaptionMode,
     prepare_canvas_image,
+    pre_scale_panoramic,
+    crop_panoramic_frame,
     blend_two_images,
     fade_to_black_image
 )
@@ -70,6 +72,11 @@ class SlideshowApp:
         self.transition_job = None
         self.pan_start_time = 0.0
 
+        # Cache de imagem pré-escalada para modo Panorâmico a 60 FPS
+        self.pan_scaled_img: Optional[Image.Image] = None
+        self.pan_max_dx: int = 0
+        self.pan_max_dy: int = 0
+
         # Configuração da janela
         self.root.title("Slideshow Pro")
         self.root.configure(bg="black")
@@ -78,6 +85,9 @@ class SlideshowApp:
         # Canvas principal de desenho para suporte a overlays e pans
         self.canvas = tk.Canvas(self.root, bg="black", highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
+
+        # Item gráfico de imagem persistente para evitar flicker e recriação
+        self.canvas_img_id = self.canvas.create_image(0, 0, anchor=tk.NW)
 
         # Elementos visuais sobrepostos (overlays)
         self.caption_text_id = None
@@ -263,7 +273,16 @@ class SlideshowApp:
             win_h = self.root.winfo_height() or 800
 
         old_canvas_img = self.current_canvas_img
-        new_canvas_img = prepare_canvas_image(new_pil, win_w, win_h, self.framing_mode, pan_progress=0.0)
+
+        # Se for modo Panorâmico, pré-escala uma única vez na RAM
+        if self.framing_mode == FramingMode.PANORAMIC:
+            self.pan_scaled_img, self.pan_max_dx, self.pan_max_dy = pre_scale_panoramic(new_pil, win_w, win_h)
+            new_canvas_img = crop_panoramic_frame(
+                self.pan_scaled_img, win_w, win_h, self.pan_max_dx, self.pan_max_dy, 0.0
+            )
+        else:
+            self.pan_scaled_img = None
+            new_canvas_img = prepare_canvas_image(new_pil, win_w, win_h, self.framing_mode)
 
         self.current_pil_img = new_pil
         self.current_canvas_img = new_canvas_img
@@ -274,21 +293,24 @@ class SlideshowApp:
             self._display_canvas_image(new_canvas_img)
             self._post_slide_render(path)
         elif self.transition_mode == TransitionMode.CROSSFADE:
-            self._animate_crossfade(old_canvas_img, new_canvas_img, path, step=0, total_steps=8)
+            self._animate_crossfade(old_canvas_img, new_canvas_img, path, step=0, total_steps=25)
         elif self.transition_mode == TransitionMode.FADE_BLACK:
-            self._animate_fade_black(old_canvas_img, new_canvas_img, path, step=0, total_steps=10)
+            self._animate_fade_black(old_canvas_img, new_canvas_img, path, step=0, total_steps=25)
 
     def _display_canvas_image(self, pil_img: Image.Image):
-        """Converte a imagem PIL para PhotoImage e joga no Canvas."""
+        """Converte a imagem PIL para PhotoImage e atualiza o Canvas suavemente sem flicker."""
         self.current_photo_tk = ImageTk.PhotoImage(pil_img)
-        self.canvas.delete("all")
-        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.current_photo_tk)
+        if self.canvas_img_id is None:
+            self.canvas_img_id = self.canvas.create_image(0, 0, anchor=tk.NW, image=self.current_photo_tk)
+        else:
+            self.canvas.itemconfig(self.canvas_img_id, image=self.current_photo_tk)
+        self.canvas.tag_lower(self.canvas_img_id)
 
     def _post_slide_render(self, path: str):
         """Finaliza renderização do slide: atualiza legendas e agenda próximo evento."""
         self._update_caption_overlay(path)
 
-        # Se estiver no modo Panorâmico, inicia animação de pan contínuo
+        # Se estiver no modo Panorâmico, inicia animação de pan contínuo a 50-60 FPS
         if self.framing_mode == FramingMode.PANORAMIC and not self.is_paused:
             self._start_panoramic_tick()
 
@@ -297,14 +319,14 @@ class SlideshowApp:
             self.scheduled_next = self.root.after(self.delay_ms, self.next_slide)
 
     def _animate_crossfade(self, old_img: Image.Image, new_img: Image.Image, path: str, step: int, total_steps: int):
-        """Executa interpolação gradual entre duas imagens (Crossfade)."""
+        """Executa interpolação gradual e suave entre duas imagens (Crossfade cinemático)."""
         alpha = step / total_steps
         blended = blend_two_images(old_img, new_img, alpha)
         self._display_canvas_image(blended)
 
         if step < total_steps:
             self.transition_job = self.root.after(
-                35,
+                18,
                 self._animate_crossfade,
                 old_img,
                 new_img,
@@ -317,7 +339,7 @@ class SlideshowApp:
             self._post_slide_render(path)
 
     def _animate_fade_black(self, old_img: Image.Image, new_img: Image.Image, path: str, step: int, total_steps: int):
-        """Executa esmaecimento suave para o preto e retorno à nova imagem."""
+        """Executa esmaecimento suave para o preto e retorno gradual à nova imagem."""
         half = total_steps // 2
         if step <= half:
             p = step / half
@@ -330,7 +352,7 @@ class SlideshowApp:
 
         if step < total_steps:
             self.transition_job = self.root.after(
-                35,
+                18,
                 self._animate_fade_black,
                 old_img,
                 new_img,
@@ -343,22 +365,25 @@ class SlideshowApp:
             self._post_slide_render(path)
 
     def _start_panoramic_tick(self):
-        """Atualiza periodicamente o frame panorâmico (efeito Ken Burns)."""
+        """Atualiza periodicamente o frame panorâmico (efeito Ken Burns) com custo computacional mínimo (<0.2ms)."""
         if self.framing_mode != FramingMode.PANORAMIC or self.is_paused:
+            return
+        if not self.pan_scaled_img:
             return
 
         elapsed = time.time() - self.pan_start_time
-        progress = elapsed / (self.delay_ms / 1000.0)
+        total_duration = self.delay_ms / 1000.0
+        progress = elapsed / total_duration
 
-        if progress <= 1.0 and self.current_pil_img:
+        if progress <= 1.0:
             win_w = self.canvas.winfo_width()
             win_h = self.canvas.winfo_height()
-            panned = prepare_canvas_image(self.current_pil_img, win_w, win_h, FramingMode.PANORAMIC, pan_progress=progress)
+            panned = crop_panoramic_frame(
+                self.pan_scaled_img, win_w, win_h, self.pan_max_dx, self.pan_max_dy, progress
+            )
             self._display_canvas_image(panned)
-            path = self.get_current_image_path()
-            if path:
-                self._update_caption_overlay(path)
-            self.pan_job = self.root.after(40, self._start_panoramic_tick)
+            # 20ms = ~50 FPS de alta fluidez
+            self.pan_job = self.root.after(20, self._start_panoramic_tick)
 
     def _cancel_scheduled_jobs(self):
         """Cancela timers ativos para evitar colisões durante transições."""

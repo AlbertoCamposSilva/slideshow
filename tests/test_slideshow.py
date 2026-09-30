@@ -38,6 +38,21 @@ def test_display_canvas_panoramic():
     assert canvas_end.size == (400, 300)
 
 
+def test_panoramic_fast_crop():
+    from slideshow.display import pre_scale_panoramic, crop_panoramic_frame
+    img = Image.new("RGB", (1000, 500), color="purple")
+    scaled_img, max_dx, max_dy = pre_scale_panoramic(img, 400, 300)
+    assert scaled_img.width >= 400
+    assert scaled_img.height >= 300
+
+    frame_0 = crop_panoramic_frame(scaled_img, 400, 300, max_dx, max_dy, 0.0)
+    frame_mid = crop_panoramic_frame(scaled_img, 400, 300, max_dx, max_dy, 0.5)
+    frame_1 = crop_panoramic_frame(scaled_img, 400, 300, max_dx, max_dy, 1.0)
+    assert frame_0.size == (400, 300)
+    assert frame_mid.size == (400, 300)
+    assert frame_1.size == (400, 300)
+
+
 def test_blend_images():
     img1 = Image.new("RGB", (100, 100), color="white")
     img2 = Image.new("RGB", (100, 100), color="black")

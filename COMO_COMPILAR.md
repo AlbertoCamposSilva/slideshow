@@ -52,8 +52,9 @@ uv run python build.py --clean
 
 ## 📂 Onde encontrar os executáveis gerados?
 
-Após a compilação, os arquivos `.exe` estarão disponíveis na pasta:
-- `dist/Slideshow-Nuitka.exe`
-- `dist/Slideshow-PyInstaller.exe`
+Após a compilação, os artefatos estarão disponíveis na pasta:
+- `dist/Slideshow/Slideshow.exe` (Pasta portátil com inicialização ultrarrápida)
+- `dist/Slideshow-Portatil.zip` (Arquivo compactado pronto para envio a outras pessoas)
+- `dist/Slideshow-PyInstaller.exe` (Executável alternativo via PyInstaller)
 
-Os executáveis são autônomos (*standalone onefile*) e podem ser transportados para qualquer computador com Windows sem necessidade de ter o Python ou o `uv` instalados.
+O aplicativo portátil pode ser transportado ou compartilhado para qualquer computador com Windows sem necessidade de ter o Python ou o `uv` instalados. Basta descompactar o `.zip` e executar `Slideshow.exe`.

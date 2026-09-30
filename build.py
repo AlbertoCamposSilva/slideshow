@@ -45,7 +45,17 @@ def build_nuitka():
     DIST_DIR.mkdir(exist_ok=True)
     icon_path = ROOT_DIR / "src" / "slideshow" / "assets" / "icon.ico"
 
-    # Parâmetros otimizados do Nuitka para Tkinter, Pillow e openpyxl no Windows
+    # Remove pasta dist/Slideshow anterior se existir, deixando apenas o executável único
+    old_folder = DIST_DIR / "Slideshow"
+    if old_folder.exists() and old_folder.is_dir():
+        shutil.rmtree(old_folder, ignore_errors=True)
+        print(" - Removida pasta dist/Slideshow anterior.")
+
+    old_zip = DIST_DIR / "Slideshow-Portatil.zip"
+    if old_zip.exists():
+        old_zip.unlink(missing_ok=True)
+
+    # Parâmetros otimizados do Nuitka para modo onefile (executável único) no Windows
     cmd = [
         sys.executable,
         "-m", "nuitka",
@@ -58,7 +68,7 @@ def build_nuitka():
         "--include-package=openpyxl",
         "--assume-yes-for-downloads",
         f"--output-dir={DIST_DIR}",
-        "--output-filename=Slideshow-Nuitka.exe",
+        "--output-filename=Slideshow.exe",
     ]
     # Localiza pasta Tcl para garantir empacotamento sem erros no Windows
     prefix = Path(sys.base_prefix)
@@ -78,7 +88,9 @@ def build_nuitka():
 
     cmd.append(str(ENTRY_POINT))
     run_command(cmd, "Compilação com Nuitka")
-    print(f"\nExecutável gerado em: {DIST_DIR / 'Slideshow-Nuitka.exe'}")
+
+    exe_target = DIST_DIR / "Slideshow.exe"
+    print(f"\n[SUCESSO] Executável único gerado com sucesso em: {exe_target}")
 
 
 def build_pyinstaller():

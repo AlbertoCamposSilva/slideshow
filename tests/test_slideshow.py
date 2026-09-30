@@ -55,18 +55,28 @@ def test_favorites_manager():
         with open(fake_photo, "wb") as f:
             f.write(b"fake data")
 
-        # Adiciona like
-        liked = fav.toggle_favorite(fake_photo, {"resolution": "1920x1080", "size_kb": 12.5})
-        assert liked is True
+        # Adiciona like explícito
+        added = fav.add_favorite(fake_photo, {"resolution": "1920x1080", "size_kb": 12.5})
+        assert added is True
         assert fav.is_favorite(fake_photo) is True
         assert fav.favorites_count == 1
         assert excel_path.exists()
 
-        # Remove like
-        unliked = fav.toggle_favorite(fake_photo)
-        assert unliked is False
+        # Tentar adicionar novamente não deve duplicar nem remover
+        added_again = fav.add_favorite(fake_photo)
+        assert added_again is False
+        assert fav.is_favorite(fake_photo) is True
+        assert fav.favorites_count == 1
+
+        # Remove like com método dedicado
+        removed = fav.remove_favorite(fake_photo)
+        assert removed is True
         assert fav.is_favorite(fake_photo) is False
         assert fav.favorites_count == 0
+
+        # Tentar remover novamente retorna False
+        removed_again = fav.remove_favorite(fake_photo)
+        assert removed_again is False
 
 
 def test_buffer_vault_only():

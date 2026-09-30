@@ -79,7 +79,8 @@ run_slideshow(
 | **`Seta Cima / Baixo`** | Acelerar / desacelerar intervalo |
 | **`D`** | Digitar intervalo de tempo personalizado em segundos |
 | **`O`** | Alternar ordem (Aleatória / Data / Alfabética) |
-| **`L`** | Dar Like / Descurtir (salva em `slideshow_favoritos.xlsx`) |
+| **`L`** | Adicionar foto aos Favoritos (salva no Excel) |
+| **`U`** / **`Del`** | Remover foto dos Favoritos (retira do Excel) |
 | **`F`** | Filtrar: exibir apenas fotos favoritas |
 | **`C`** | Alternar legenda (Oculta / Compacta / Detalhada) |
 | **`M`** | Alternar modo de enquadramento (Ajustar / Zoom / Panorâmico) |

@@ -116,8 +116,11 @@ class SlideshowApp:
         self.root.bind("<D>", self.prompt_custom_delay)
         self.root.bind("<o>", self.cycle_sort_order)
         self.root.bind("<O>", self.cycle_sort_order)
-        self.root.bind("<l>", self.toggle_like)
-        self.root.bind("<L>", self.toggle_like)
+        self.root.bind("<l>", self.add_like)
+        self.root.bind("<L>", self.add_like)
+        self.root.bind("<u>", self.remove_like)
+        self.root.bind("<U>", self.remove_like)
+        self.root.bind("<Delete>", self.remove_like)
         self.root.bind("<f>", self.toggle_filter_favorites)
         self.root.bind("<F>", self.toggle_filter_favorites)
         self.root.bind("<c>", self.cycle_caption)
@@ -446,10 +449,14 @@ class SlideshowApp:
 
     # --- Controles e Ações de Teclado ---
 
-    def toggle_like(self, event=None):
-        """Alterna o status de favorito (Like) e grava na planilha Excel."""
+    def add_like(self, event=None):
+        """Adiciona a foto aos favoritos (Like) e grava no Excel (sem risco de remover)."""
         path = self.get_current_image_path()
         if not path:
+            return
+
+        if self.favorites.is_favorite(path):
+            self.show_toast("Esta foto já está favoritada! ❤️", duration_ms=1800)
             return
 
         metadata = {}
@@ -460,12 +467,22 @@ class SlideshowApp:
         except OSError:
             pass
 
-        is_liked = self.favorites.toggle_favorite(path, metadata)
-        if is_liked:
-            self.show_toast("Favoritada! ❤️ Salva no Excel.", duration_ms=1800)
-        else:
-            self.show_toast("Descurtida! 🤍 Removida do Excel.", duration_ms=1800)
+        self.favorites.add_favorite(path, metadata)
+        self.show_toast("Favoritada! ❤️ Salva no Excel.", duration_ms=1800)
+        self._update_caption_overlay(path)
 
+    def remove_like(self, event=None):
+        """Remove a foto dos favoritos (Unlike) da planilha Excel."""
+        path = self.get_current_image_path()
+        if not path:
+            return
+
+        if not self.favorites.is_favorite(path):
+            self.show_toast("Esta foto não está nos favoritos.", duration_ms=1500)
+            return
+
+        self.favorites.remove_favorite(path)
+        self.show_toast("Removida dos favoritos! 🤍", duration_ms=1800)
         self._update_caption_overlay(path)
 
     def toggle_filter_favorites(self, event=None):
@@ -615,7 +632,8 @@ class SlideshowApp:
             ("Seta Cima / Baixo", "Acelerar / Desacelerar intervalo"),
             ("D", "Digitar intervalo de tempo personalizado"),
             ("O", "Alternar Ordem (Aleatória / Data / Alfabética)"),
-            ("L", "Dar Like / Descurtir (salva em Excel)"),
+            ("L", "Adicionar aos Favoritos (Like no Excel)"),
+            ("U / Del", "Remover dos Favoritos (Unlike do Excel)"),
             ("F", "Filtrar: Exibir apenas fotos Favoritas"),
             ("C", "Alternar Legenda (Oculta / Nome / Detalhada)"),
             ("M", "Modo Enquadramento (Ajustar / Zoom / Panorâmico)"),

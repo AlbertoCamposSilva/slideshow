@@ -82,6 +82,28 @@ class FavoritesManager:
         """Verifica se o arquivo já está favoritado."""
         return self._normalize_path(path) in self._favorites
 
+    def add_favorite(self, path: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Adiciona a imagem aos favoritos caso ainda não esteja presente.
+        Retorna True se foi adicionada, ou False se já constava nos favoritos.
+        """
+        norm_path = self._normalize_path(path)
+        if norm_path in self._favorites:
+            return False
+        self._add_favorite(path, norm_path, metadata)
+        return True
+
+    def remove_favorite(self, path: str) -> bool:
+        """
+        Remove a imagem dos favoritos caso esteja presente.
+        Retorna True se foi removida, ou False se não estava nos favoritos.
+        """
+        norm_path = self._normalize_path(path)
+        if norm_path not in self._favorites:
+            return False
+        self._remove_favorite(path, norm_path)
+        return True
+
     def toggle_favorite(self, path: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
         """
         Alterna o estado de favorito da imagem.

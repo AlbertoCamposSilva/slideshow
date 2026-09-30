@@ -60,6 +60,19 @@ def build_nuitka():
         f"--output-dir={DIST_DIR}",
         "--output-filename=Slideshow-Nuitka.exe",
     ]
+    # Localiza pasta Tcl para garantir empacotamento sem erros no Windows
+    prefix = Path(sys.base_prefix)
+    tcl_cand = prefix / "tcl"
+    tcl_dir = None
+    if tcl_cand.exists():
+        for sub in tcl_cand.iterdir():
+            if sub.is_dir() and sub.name.lower().startswith("tcl"):
+                tcl_dir = str(sub)
+                break
+
+    if tcl_dir:
+        cmd.append(f"--tcl-library-dir={tcl_dir}")
+
     if icon_path.exists():
         cmd.append(f"--windows-icon-from-ico={icon_path}")
 

@@ -34,6 +34,7 @@ MANIFEST
 *.build/
 *.dist/
 *.onefile-build/
+nuitka-crash-report.xml
 
 # Environments
 .env

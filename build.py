@@ -43,6 +43,7 @@ def clean_artifacts():
 def build_nuitka():
     clean_artifacts()
     DIST_DIR.mkdir(exist_ok=True)
+    icon_path = ROOT_DIR / "src" / "slideshow" / "assets" / "icon.ico"
 
     # Parâmetros otimizados do Nuitka para Tkinter, Pillow e openpyxl no Windows
     cmd = [
@@ -52,13 +53,17 @@ def build_nuitka():
         "--windows-console-mode=disable",
         "--enable-plugin=tk-inter",
         "--include-package=slideshow",
+        "--include-package-data=slideshow",
         "--include-package=PIL",
         "--include-package=openpyxl",
         "--assume-yes-for-downloads",
         f"--output-dir={DIST_DIR}",
         "--output-filename=Slideshow-Nuitka.exe",
-        str(ENTRY_POINT)
     ]
+    if icon_path.exists():
+        cmd.append(f"--windows-icon-from-ico={icon_path}")
+
+    cmd.append(str(ENTRY_POINT))
     run_command(cmd, "Compilação com Nuitka")
     print(f"\nExecutável gerado em: {DIST_DIR / 'Slideshow-Nuitka.exe'}")
 
@@ -66,6 +71,7 @@ def build_nuitka():
 def build_pyinstaller():
     clean_artifacts()
     DIST_DIR.mkdir(exist_ok=True)
+    icon_path = ROOT_DIR / "src" / "slideshow" / "assets" / "icon.ico"
 
     cmd = [
         sys.executable,
@@ -79,8 +85,11 @@ def build_pyinstaller():
         "--collect-all", "slideshow",
         "--collect-all", "PIL",
         "--collect-all", "openpyxl",
-        str(ENTRY_POINT)
     ]
+    if icon_path.exists():
+        cmd.append(f"--icon={icon_path}")
+
+    cmd.append(str(ENTRY_POINT))
     run_command(cmd, "Compilação com PyInstaller")
     print(f"\nExecutável gerado em: {DIST_DIR / 'Slideshow-PyInstaller.exe'}")
 

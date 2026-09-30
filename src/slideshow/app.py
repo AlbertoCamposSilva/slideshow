@@ -1,6 +1,6 @@
-"""Módulo da interface gráfica principal do Slideshow em Tkinter."""
-
 import os
+import sys
+import ctypes
 import random
 import time
 import tkinter as tk
@@ -23,6 +23,9 @@ from slideshow.display import (
     blend_two_images,
     fade_to_black_image
 )
+
+# Pausa de assentamento (ms) após a transição terminar antes de iniciar o movimento panorâmico
+SETTLE_PAUSE_MS = 350
 
 
 class SlideshowApp:
@@ -69,18 +72,30 @@ class SlideshowApp:
         self.current_photo_tk: Optional[ImageTk.PhotoImage] = None
         self.scheduled_next = None
         self.pan_job = None
+        self.settle_job = None
         self.transition_job = None
         self.pan_start_time = 0.0
+        self.pan_duration_sec = max(1.0, delay_seconds)
 
         # Cache de imagem pré-escalada para modo Panorâmico a 60 FPS
         self.pan_scaled_img: Optional[Image.Image] = None
         self.pan_max_dx: int = 0
         self.pan_max_dy: int = 0
 
+        # Configura AppUserModelID no Windows para garantir ícone exclusivo na barra de tarefas
+        if sys.platform == "win32":
+            try:
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Antigravity.Slideshow.Pro.Viewer.1.0")
+            except Exception:
+                pass
+
         # Configuração da janela
         self.root.title("Slideshow Pro")
         self.root.configure(bg="black")
         self.root.attributes("-topmost", False)
+
+        # Carrega o ícone oficial da aplicação
+        self._load_app_icon()
 
         # Canvas principal de desenho para suporte a overlays e pans
         self.canvas = tk.Canvas(self.root, bg="black", highlightthickness=0)
@@ -145,6 +160,25 @@ class SlideshowApp:
         self.root.bind("<P>", self.toggle_topmost)
         self.root.bind("<Configure>", self.on_window_resize)
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
+
+    def _load_app_icon(self):
+        """Carrega e define o ícone do programa na barra de tarefas e título do Windows."""
+        assets_dir = Path(__file__).resolve().parent / "assets"
+        ico_file = assets_dir / "icon.ico"
+        png_file = assets_dir / "icon.png"
+
+        if png_file.exists():
+            try:
+                self._icon_photo = ImageTk.PhotoImage(file=str(png_file))
+                self.root.iconphoto(True, self._icon_photo)
+            except Exception as e:
+                print(f"[Icon] Erro ao carregar iconphoto: {e}")
+
+        if sys.platform == "win32" and ico_file.exists():
+            try:
+                self.root.iconbitmap(str(ico_file))
+            except Exception as e:
+                print(f"[Icon] Erro ao carregar iconbitmap: {e}")
 
     def _preload_vault_images(self):
         """Carrega fotos em RAM com barra de progresso caso estejam no Cofre Pessoal."""
@@ -286,12 +320,11 @@ class SlideshowApp:
 
         self.current_pil_img = new_pil
         self.current_canvas_img = new_canvas_img
-        self.pan_start_time = time.time()
 
         # Decide o tipo de transição
         if first_run or self.transition_mode == TransitionMode.HARD or old_canvas_img is None:
             self._display_canvas_image(new_canvas_img)
-            self._post_slide_render(path)
+            self._post_slide_render(path, transition_duration_ms=0)
         elif self.transition_mode == TransitionMode.CROSSFADE:
             self._animate_crossfade(old_canvas_img, new_canvas_img, path, step=0, total_steps=25)
         elif self.transition_mode == TransitionMode.FADE_BLACK:
@@ -306,17 +339,26 @@ class SlideshowApp:
             self.canvas.itemconfig(self.canvas_img_id, image=self.current_photo_tk)
         self.canvas.tag_lower(self.canvas_img_id)
 
-    def _post_slide_render(self, path: str):
-        """Finaliza renderização do slide: atualiza legendas e agenda próximo evento."""
+    def _post_slide_render(self, path: str, transition_duration_ms: int = 0):
+        """Finaliza renderização do slide: atualiza legendas e agenda início suave de pan e próximo slide."""
         self._update_caption_overlay(path)
 
-        # Se estiver no modo Panorâmico, inicia animação de pan contínuo a 50-60 FPS
+        # Se estiver no modo Panorâmico, espera a pausa de assentamento (350ms) antes de iniciar a câmera
         if self.framing_mode == FramingMode.PANORAMIC and not self.is_paused:
-            self._start_panoramic_tick()
+            remaining_ms = self.delay_ms - transition_duration_ms - SETTLE_PAUSE_MS
+            self.pan_duration_sec = max(1.0, remaining_ms / 1000.0)
+            self.settle_job = self.root.after(SETTLE_PAUSE_MS, self._start_pan_after_settle)
 
         # Agenda o próximo slide
         if not self.is_paused:
             self.scheduled_next = self.root.after(self.delay_ms, self.next_slide)
+
+    def _start_pan_after_settle(self):
+        """Inicia a movimentação panorâmica estritamente a partir do repouso após o término da transição."""
+        if self.framing_mode != FramingMode.PANORAMIC or self.is_paused or not self.pan_scaled_img:
+            return
+        self.pan_start_time = time.time()
+        self._start_panoramic_tick()
 
     def _animate_crossfade(self, old_img: Image.Image, new_img: Image.Image, path: str, step: int, total_steps: int):
         """Executa interpolação gradual e suave entre duas imagens (Crossfade cinemático)."""
@@ -336,7 +378,8 @@ class SlideshowApp:
             )
         else:
             self._display_canvas_image(new_img)
-            self._post_slide_render(path)
+            # 25 passos * 18ms = ~450ms
+            self._post_slide_render(path, transition_duration_ms=450)
 
     def _animate_fade_black(self, old_img: Image.Image, new_img: Image.Image, path: str, step: int, total_steps: int):
         """Executa esmaecimento suave para o preto e retorno gradual à nova imagem."""
@@ -362,7 +405,7 @@ class SlideshowApp:
             )
         else:
             self._display_canvas_image(new_img)
-            self._post_slide_render(path)
+            self._post_slide_render(path, transition_duration_ms=450)
 
     def _start_panoramic_tick(self):
         """Atualiza periodicamente o frame panorâmico (efeito Ken Burns) com custo computacional mínimo (<0.2ms)."""
@@ -372,8 +415,7 @@ class SlideshowApp:
             return
 
         elapsed = time.time() - self.pan_start_time
-        total_duration = self.delay_ms / 1000.0
-        progress = elapsed / total_duration
+        progress = elapsed / self.pan_duration_sec
 
         if progress <= 1.0:
             win_w = self.canvas.winfo_width()
@@ -390,6 +432,9 @@ class SlideshowApp:
         if self.scheduled_next:
             self.root.after_cancel(self.scheduled_next)
             self.scheduled_next = None
+        if self.settle_job:
+            self.root.after_cancel(self.settle_job)
+            self.settle_job = None
         if self.pan_job:
             self.root.after_cancel(self.pan_job)
             self.pan_job = None

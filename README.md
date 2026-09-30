@@ -40,11 +40,14 @@ Um apresentador de slides moderno, resiliente, modular e extensível para Window
 
 ### Usando o `uv` (Recomendado)
 ```bash
-# Executar diretamente do repositório
-uv run slideshow
+# Execução universal (compatível com políticas de segurança / AppLocker / WDAC)
+uv run python -m slideshow -p "C:\Users\silva\OneDrive\Cofre Pessoal\Outras Imagens"
 
-# Ou com opções específicas
-uv run slideshow -p "C:\Fotos" -d 4.5 --fullscreen -m panoramic
+# A partir de qualquer diretório no sistema
+uv run --project "C:\Projetos\Pessoais\slideshow" python -m slideshow -p "C:\Users\silva\OneDrive\Cofre Pessoal\Outras Imagens"
+
+# Com opções de enquadramento panorâmico e tela cheia
+uv run python -m slideshow -p "C:\Fotos" -d 4.0 --fullscreen -m panoramic -t crossfade
 ```
 
 ### Como Módulo em Outros Projetos

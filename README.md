@@ -88,6 +88,7 @@ run_slideshow(
 | **`L`** | Adicionar foto aos Favoritos (salva no Excel) |
 | **`U`** / **`Del`** | Remover foto dos Favoritos (retira do Excel) |
 | **`F`** | Filtrar: exibir apenas fotos favoritas |
+| **`E`** | Alternar Otimização de Baixa Resolução (Nitidez, Grão e Fundo Suave) |
 | **`C`** | Alternar legenda (Oculta / Compacta / Detalhada) |
 | **`M`** | Alternar modo de enquadramento (Ajustar / Zoom / Panorâmico) |
 | **`X`** | Alternar estilo de transição (Suave Crossfade / Dura / Fade) |

@@ -122,3 +122,26 @@ def test_diagnose_nonexistent_path():
     assert diag["exists"] is False
     assert diag["accessible"] is False
     assert len(diag["advice"]) > 0
+
+
+def test_lowres_enhancement_applied():
+    from slideshow.display import enhance_lowres_image, prepare_canvas_image
+    small_img = Image.new("RGB", (200, 150), color="blue")
+    enhanced = enhance_lowres_image(small_img, 1920, 1440)
+    assert enhanced.size == (1920, 1440)
+
+    # Com enhance_lowres ativado, cria fundo ambiente desfocado
+    canvas_enhanced = prepare_canvas_image(small_img, 800, 600, FramingMode.FIT, enhance_lowres=True)
+    assert canvas_enhanced.size == (800, 600)
+
+    # Com enhance_lowres desativado, gera com fundo preto padrão
+    canvas_normal = prepare_canvas_image(small_img, 800, 600, FramingMode.FIT, enhance_lowres=False)
+    assert canvas_normal.size == (800, 600)
+
+
+def test_highres_image_not_modified_by_enhancement():
+    from slideshow.display import prepare_canvas_image
+    # Imagem de alta resolução (maior que a tela 400x300)
+    large_img = Image.new("RGB", (1200, 900), color="red")
+    canvas = prepare_canvas_image(large_img, 400, 300, FramingMode.FIT, enhance_lowres=True)
+    assert canvas.size == (400, 300)

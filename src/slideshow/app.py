@@ -56,6 +56,7 @@ class SlideshowApp:
         self.is_fullscreen = False
         self.is_always_on_top = False
         self.filter_only_favorites = False
+        self.enhancement_enabled = True
 
         # Gerenciadores auxiliares
         self.buffer = RAMImageBuffer(ram_limit_mb=ram_limit_mb, is_vault=self.is_vault)
@@ -158,6 +159,8 @@ class SlideshowApp:
         self.root.bind("<T>", self.toggle_topmost)
         self.root.bind("<p>", self.toggle_topmost)
         self.root.bind("<P>", self.toggle_topmost)
+        self.root.bind("<e>", self.toggle_enhancement)
+        self.root.bind("<E>", self.toggle_enhancement)
         self.root.bind("<Configure>", self.on_window_resize)
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
 
@@ -310,13 +313,17 @@ class SlideshowApp:
 
         # Se for modo Panorâmico, pré-escala uma única vez na RAM
         if self.framing_mode == FramingMode.PANORAMIC:
-            self.pan_scaled_img, self.pan_max_dx, self.pan_max_dy = pre_scale_panoramic(new_pil, win_w, win_h)
+            self.pan_scaled_img, self.pan_max_dx, self.pan_max_dy = pre_scale_panoramic(
+                new_pil, win_w, win_h, enhance_lowres=self.enhancement_enabled
+            )
             new_canvas_img = crop_panoramic_frame(
                 self.pan_scaled_img, win_w, win_h, self.pan_max_dx, self.pan_max_dy, 0.0
             )
         else:
             self.pan_scaled_img = None
-            new_canvas_img = prepare_canvas_image(new_pil, win_w, win_h, self.framing_mode)
+            new_canvas_img = prepare_canvas_image(
+                new_pil, win_w, win_h, self.framing_mode, enhance_lowres=self.enhancement_enabled
+            )
 
         self.current_pil_img = new_pil
         self.current_canvas_img = new_canvas_img
@@ -642,6 +649,14 @@ class SlideshowApp:
         self.root.attributes("-fullscreen", self.is_fullscreen)
         self.show_toast("Tela Cheia: Ativada" if self.is_fullscreen else "Tela Cheia: Desativada", duration_ms=1200)
 
+    def toggle_enhancement(self, event=None):
+        """Alterna a otimização inteligente de imagens em baixa resolução (Tecla E)."""
+        self.enhancement_enabled = not self.enhancement_enabled
+        status = "ATIVADA (Nitidez + Fundo Suave)" if self.enhancement_enabled else "DESATIVADA"
+        self.show_toast(f"Melhoria Baixa Resolução: {status}", duration_ms=2200)
+        self._cancel_scheduled_jobs()
+        self._render_current_slide()
+
     def on_escape(self, event=None):
         """Se estiver em tela cheia sai dela; caso contrário fecha a aplicação."""
         if self.is_fullscreen:
@@ -690,7 +705,7 @@ class SlideshowApp:
         """Abre janela flutuante com a documentação de atalhos e funções."""
         help_win = tk.Toplevel(self.root)
         help_win.title("Atalhos e Ajuda do Slideshow")
-        help_win.geometry("540x520")
+        help_win.geometry("540x550")
         help_win.configure(bg="#1E1E1E")
         help_win.resizable(False, False)
         help_win.attributes("-topmost", True)
@@ -716,6 +731,7 @@ class SlideshowApp:
             ("L", "Adicionar aos Favoritos (Like no Excel)"),
             ("U / Del", "Remover dos Favoritos (Unlike do Excel)"),
             ("F", "Filtrar: Exibir apenas fotos Favoritas"),
+            ("E", "Alternar Otimização Baixa Resolução (Padrão: Ativada)"),
             ("C", "Alternar Legenda (Oculta / Nome / Detalhada)"),
             ("M", "Modo Enquadramento (Ajustar / Zoom / Panorâmico)"),
             ("X", "Modo Transição (Suave Crossfade / Dura / Fade)"),

@@ -423,9 +423,20 @@ class SlideshowApp:
             panned = crop_panoramic_frame(
                 self.pan_scaled_img, win_w, win_h, self.pan_max_dx, self.pan_max_dy, progress
             )
+            # Mantém a referência do quadro atualizado para que a transição saia deste ponto exato
+            self.current_canvas_img = panned
             self._display_canvas_image(panned)
             # 20ms = ~50 FPS de alta fluidez
             self.pan_job = self.root.after(20, self._start_panoramic_tick)
+        else:
+            # Fixa o quadro final absoluto (1.0) até o momento em que a próxima transição começar
+            win_w = self.canvas.winfo_width()
+            win_h = self.canvas.winfo_height()
+            final_panned = crop_panoramic_frame(
+                self.pan_scaled_img, win_w, win_h, self.pan_max_dx, self.pan_max_dy, 1.0
+            )
+            self.current_canvas_img = final_panned
+            self._display_canvas_image(final_panned)
 
     def _cancel_scheduled_jobs(self):
         """Cancela timers ativos para evitar colisões durante transições."""

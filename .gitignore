@@ -51,5 +51,15 @@ venv.bak/
 *.swp
 *.swo
 
-# Local user data
+# Testing & Cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs & Reports
+*.log
+*.xml
+
+# Local user data & favorites
+*.xlsx
 *.xlsx.tmp

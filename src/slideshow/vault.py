@@ -236,7 +236,8 @@ def diagnose_path(path_str: str) -> Dict[str, Any]:
 
 def main_diag():
     """CLI de diagnóstico rápido."""
-    target = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\silva\OneDrive\Cofre Pessoal\Outras Imagens"
+    default_target = str(Path.home() / "OneDrive" / "Cofre Pessoal" / "Outras Imagens")
+    target = sys.argv[1] if len(sys.argv) > 1 else default_target
     print(f"\n=== DIAGNÓSTICO DO CAMINHO: {target} ===")
     diag = diagnose_path(target)
     for k, v in diag.items():

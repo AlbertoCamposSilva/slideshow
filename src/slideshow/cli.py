@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+from pathlib import Path
 from slideshow.core import run_slideshow
 from slideshow.vault import diagnose_path, main_diag
 
@@ -72,7 +73,8 @@ def main():
     args = parser.parse_args()
 
     if args.check_vault:
-        target = args.folder or r"C:\Users\silva\OneDrive\Cofre Pessoal\Outras Imagens"
+        default_vault = str(Path.home() / "OneDrive" / "Cofre Pessoal" / "Outras Imagens")
+        target = args.folder or default_vault
         print(f"\n[Diagnóstico] Verificando: {target}")
         diag = diagnose_path(target)
         for k, v in diag.items():

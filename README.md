@@ -40,14 +40,17 @@ Um apresentador de slides moderno, resiliente, modular e extensível para Window
 
 ### Usando o `uv` (Recomendado)
 ```bash
-# Execução universal (compatível com políticas de segurança / AppLocker / WDAC)
-uv run python -m slideshow -p "C:\Users\silva\OneDrive\Cofre Pessoal\Outras Imagens"
+# Execução direta informando a pasta de imagens
+uv run python -m slideshow -p "C:\Fotos"
 
 # A partir de qualquer diretório no sistema
-uv run --project "C:\Projetos\Pessoais\slideshow" python -m slideshow -p "C:\Users\silva\OneDrive\Cofre Pessoal\Outras Imagens"
+uv run --project "C:\caminho\para\slideshow" python -m slideshow -p "C:\Fotos"
 
-# Com opções de enquadramento panorâmico e tela cheia
+# Com opções de enquadramento panorâmico, transição suave e tela cheia
 uv run python -m slideshow -p "C:\Fotos" -d 4.0 --fullscreen -m panoramic -t crossfade
+
+# Ao executar sem argumentos, o seletor gráfico de pastas abrirá automaticamente
+uv run python -m slideshow
 ```
 
 ### Como Módulo em Outros Projetos
@@ -57,9 +60,9 @@ from slideshow import run_slideshow
 # Chamada simples
 run_slideshow(folder=r"C:\MinhasFotos", delay=4.0, fullscreen=True)
 
-# Chamada com opções avançadas
+# Chamada com opções avançadas e suporte a Cofre Pessoal
 run_slideshow(
-    folder=r"C:\Users\silva\OneDrive\Cofre Pessoal\Outras Imagens",
+    folder=r"C:\MinhasFotos",
     delay=5.0,
     framing="panoramic",
     transition="crossfade",
@@ -98,7 +101,7 @@ run_slideshow(
 Para testar e inspecionar o status de acesso e atributos dos arquivos de qualquer diretório:
 
 ```bash
-uv run slideshow --check-vault -p "C:\Users\silva\OneDrive\Cofre Pessoal\Outras Imagens"
+uv run slideshow --check-vault -p "C:\caminho\para\pasta"
 ```
 
 ---

@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "slideshow-vault"
+version = "1.0.0"
+description = "Apresentador de slides moderno, resiliente a OneDrive Personal Vault, com transições suaves, favoritos em Excel e controle avançado."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "Slideshow Developer" }
+]
+keywords = ["slideshow", "onedrive", "personal-vault", "photo-viewer", "tkinter", "ken-burns"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: Multimedia :: Graphics :: Viewers",
+]
+dependencies = [
+    "pillow>=10.0.0",
+    "openpyxl>=3.1.0",
+]
+
+[project.optional-dependencies]
+build = [
+    "nuitka>=2.0.0",
+    "pyinstaller>=6.0.0",
+    "zstandard",
+]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[project.scripts]
+slideshow = "slideshow.cli:main"
+slideshow-diag = "slideshow.vault:main_diag"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/slideshow"]

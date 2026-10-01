@@ -77,7 +77,7 @@ run_slideshow(
 
 | Tecla | Ação |
 | :--- | :--- |
-| **`F1`** | Abre / fecha a janela de ajuda flutuante |
+| **`F1`** | Abre / fecha a janela de ajuda flutuante (**Toggle**) |
 | **`F11`** | Alterna o modo de Tela Cheia |
 | **`Espaço`** | Pausar / Retomar apresentação |
 | **`Seta Esquerda`** | Foto anterior (**Histórico Infinito**) |
@@ -85,15 +85,17 @@ run_slideshow(
 | **`Seta Cima / Baixo`** | Acelerar / desacelerar intervalo |
 | **`D`** | Digitar intervalo de tempo personalizado em segundos |
 | **`O`** | Alternar ordem (Aleatória / Data / Alfabética) |
-| **`L`** | Adicionar foto aos Favoritos (salva no Excel) |
-| **`U`** / **`Del`** | Remover foto dos Favoritos (retira do Excel) |
-| **`F`** | Filtrar: exibir apenas fotos favoritas |
+| **`L`** | Like ❤️ (Se possuir Unlike, o 1º aperto desfaz o unlike) |
+| **`U`** | Unlike ❌ (Se possuir Like, o 1º aperto desfaz o like) |
+| **`F`** | Alternar filtro: **Todas as Fotos** ➔ **Apenas Favoritas** ➔ **Apenas Unlikes** |
+| **`I`** | Alternar exibição dos Ícones de Status (**❤️** / **❌**) no canto superior direito |
+| **`Shift+Delete`** | Apagar permanentemente do disco todas as fotos com Unlike (ativo no filtro Unlikes) |
 | **`E`** | Alternar Otimização de Baixa Resolução (Nitidez, Grão e Fundo Suave) |
 | **`C`** | Alternar legenda (Oculta / Compacta / Detalhada) |
 | **`M`** | Alternar modo de enquadramento (Ajustar / Zoom / Panorâmico) |
 | **`X`** | Alternar estilo de transição (Suave Crossfade / Dura / Fade) |
 | **`T` / `P`** | Alternar janela sempre no topo (Sempre Visível) |
-| **`Esc`** | Sair da tela cheia ou fechar o programa |
+| **`Esc`** | Fecha janela de ajuda (se aberta) / sai da tela cheia / encerra |
 
 ---
 

@@ -155,8 +155,6 @@ def run_slideshow(
 
     root = tk.Tk()
     root.geometry("1200x800")
-    if fullscreen:
-        root.attributes("-fullscreen", True)
 
     app = SlideshowApp(
         root=root,
@@ -170,5 +168,6 @@ def run_slideshow(
     )
     if fullscreen:
         app.is_fullscreen = True
+        root.attributes("-fullscreen", True)
 
     root.mainloop()

@@ -67,7 +67,7 @@ def main():
     parser.add_argument(
         "-v", "--version",
         action="version",
-        version="Slideshow Pro 1.0.0"
+        version="Slideshow Pro 1.1.0"
     )
 
     args = parser.parse_args()

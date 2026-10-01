@@ -55,12 +55,17 @@ class SlideshowApp:
         self.is_paused = False
         self.is_fullscreen = False
         self.is_always_on_top = False
-        self.filter_only_favorites = False
+        self.filter_mode: str = "ALL"  # "ALL", "FAVORITES", "UNLIKES"
         self.enhancement_enabled = True
+        self.show_status_icons = True
+        self.help_window: Optional[tk.Toplevel] = None
 
         # Gerenciadores auxiliares
         self.buffer = RAMImageBuffer(ram_limit_mb=ram_limit_mb, is_vault=self.is_vault)
         self.favorites = FavoritesManager()
+
+        # Carrega configurações previamente salvas na planilha do usuário
+        self._load_saved_config()
 
         # Estrutura de navegação e histórico infinito
         self.playlist: List[str] = []
@@ -76,7 +81,7 @@ class SlideshowApp:
         self.settle_job = None
         self.transition_job = None
         self.pan_start_time = 0.0
-        self.pan_duration_sec = max(1.0, delay_seconds)
+        self.pan_duration_sec = max(1.0, self.delay_ms / 1000.0)
 
         # Cache de imagem pré-escalada para modo Panorâmico a 60 FPS
         self.pan_scaled_img: Optional[Image.Image] = None
@@ -93,7 +98,10 @@ class SlideshowApp:
         # Configuração da janela
         self.root.title("Slideshow Pro")
         self.root.configure(bg="black")
-        self.root.attributes("-topmost", False)
+        if self.is_always_on_top:
+            self.root.attributes("-topmost", True)
+        if self.is_fullscreen:
+            self.root.attributes("-fullscreen", True)
 
         # Carrega o ícone oficial da aplicação
         self._load_app_icon()
@@ -107,6 +115,7 @@ class SlideshowApp:
 
         # Elementos visuais sobrepostos (overlays)
         self.caption_text_id = None
+        self.status_icon_id = None
         self.toast_text_id = None
         self.toast_rect_id = None
         self.toast_timer = None
@@ -146,9 +155,10 @@ class SlideshowApp:
         self.root.bind("<L>", self.add_like)
         self.root.bind("<u>", self.remove_like)
         self.root.bind("<U>", self.remove_like)
-        self.root.bind("<Delete>", self.remove_like)
-        self.root.bind("<f>", self.toggle_filter_favorites)
-        self.root.bind("<F>", self.toggle_filter_favorites)
+        self.root.bind("<f>", self.toggle_filter)
+        self.root.bind("<F>", self.toggle_filter)
+        self.root.bind("<i>", self.toggle_status_icons)
+        self.root.bind("<I>", self.toggle_status_icons)
         self.root.bind("<c>", self.cycle_caption)
         self.root.bind("<C>", self.cycle_caption)
         self.root.bind("<m>", self.cycle_framing_mode)
@@ -161,6 +171,8 @@ class SlideshowApp:
         self.root.bind("<P>", self.toggle_topmost)
         self.root.bind("<e>", self.toggle_enhancement)
         self.root.bind("<E>", self.toggle_enhancement)
+        self.root.bind("<Delete>", self.handle_delete_action)
+        self.root.bind("<Shift-Delete>", self.delete_all_unlikes)
         self.root.bind("<Configure>", self.on_window_resize)
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
 
@@ -218,15 +230,88 @@ class SlideshowApp:
         preload_win.destroy()
         self.show_toast(f"Cofre: {loaded}/{total} fotos na RAM ({self.buffer.usage_mb:.1f} MB)", duration_ms=2500)
 
+    def _load_saved_config(self):
+        """Carrega e aplica as configurações salvas na aba 'Configuracoes' do Excel."""
+        cfg = self.favorites.load_config()
+        if not cfg:
+            return
+
+        if "delay_seconds" in cfg:
+            try:
+                self.delay_ms = max(200, int(float(cfg["delay_seconds"]) * 1000))
+            except (ValueError, TypeError):
+                pass
+
+        if "framing_mode" in cfg:
+            val = str(cfg["framing_mode"]).strip().lower()
+            for m in FramingMode:
+                if m.name.lower() == val or m.value.lower() == val:
+                    self.framing_mode = m
+                    break
+
+        if "transition_mode" in cfg:
+            val = str(cfg["transition_mode"]).strip().lower()
+            for t in TransitionMode:
+                if t.name.lower() == val or t.value.lower() == val:
+                    self.transition_mode = t
+                    break
+
+        if "sort_order" in cfg:
+            val = str(cfg["sort_order"]).strip().lower()
+            for s in SortOrder:
+                if s.name.lower() == val or s.value.lower() == val:
+                    self.sort_order = s
+                    break
+
+        if "caption_mode" in cfg:
+            val = str(cfg["caption_mode"]).strip().lower()
+            for c in CaptionMode:
+                if c.name.lower() == val or c.value.lower() == val:
+                    self.caption_mode = c
+                    break
+
+        if "is_fullscreen" in cfg:
+            self.is_fullscreen = str(cfg["is_fullscreen"]).strip().lower() in ("true", "1", "yes")
+
+        if "is_always_on_top" in cfg:
+            self.is_always_on_top = str(cfg["is_always_on_top"]).strip().lower() in ("true", "1", "yes")
+
+        if "enhancement_enabled" in cfg:
+            self.enhancement_enabled = str(cfg["enhancement_enabled"]).strip().lower() in ("true", "1", "yes")
+
+        if "show_status_icons" in cfg:
+            self.show_status_icons = str(cfg["show_status_icons"]).strip().lower() in ("true", "1", "yes")
+
+    def _save_current_config(self):
+        """Persiste as configurações atuais na aba 'Configuracoes' da planilha."""
+        cfg = {
+            "delay_seconds": round(self.delay_ms / 1000.0, 2),
+            "framing_mode": self.framing_mode.name.lower(),
+            "transition_mode": self.transition_mode.name.lower(),
+            "sort_order": self.sort_order.name.lower(),
+            "caption_mode": self.caption_mode.name.lower(),
+            "is_fullscreen": self.is_fullscreen,
+            "is_always_on_top": self.is_always_on_top,
+            "enhancement_enabled": self.enhancement_enabled,
+            "show_status_icons": self.show_status_icons,
+        }
+        self.favorites.save_config(cfg)
+
     def _apply_sort_order(self, reset_history: bool = True):
         """Reorganiza a lista ativa de exibição e reseta/ajusta o histórico de navegação."""
         base_paths = self.raw_image_paths
 
-        if self.filter_only_favorites:
+        if self.filter_mode == "FAVORITES":
             base_paths = [p for p in base_paths if self.favorites.is_favorite(p)]
             if not base_paths:
                 self.show_toast("Nenhuma foto favoritada nesta pasta!", duration_ms=2500)
-                self.filter_only_favorites = False
+                self.filter_mode = "ALL"
+                base_paths = self.raw_image_paths
+        elif self.filter_mode == "UNLIKES":
+            base_paths = [p for p in base_paths if self.favorites.is_unliked(p)]
+            if not base_paths:
+                self.show_toast("Nenhuma foto com unlike nesta pasta!", duration_ms=2500)
+                self.filter_mode = "ALL"
                 base_paths = self.raw_image_paths
 
         if self.sort_order == SortOrder.RANDOM:
@@ -496,24 +581,54 @@ class SlideshowApp:
         self.toast_timer = self.root.after(duration_ms, lambda: self.canvas.delete("toast"))
 
     def _update_caption_overlay(self, path: str):
-        """Atualiza a legenda do arquivo atual no topo da tela conforme o modo ativo."""
+        """Atualiza a legenda no topo da tela e o ícone de status no canto superior direito."""
         self.canvas.delete("caption")
+        self.canvas.delete("status_icon")
+
+        win_w = self.canvas.winfo_width()
+        is_fav = self.favorites.is_favorite(path)
+        is_unl = self.favorites.is_unliked(path)
+
+        # 1. Ícone de status no canto superior direito (Coração / X Vermelho)
+        if self.show_status_icons and (is_fav or is_unl):
+            icon_x = win_w - 35
+            icon_y = 25
+            icon_text = "❤️" if is_fav else "❌"
+            icon_color = "#FF4B4B" if is_fav else "#FF2222"
+            icon_bg = "#2A1010" if is_fav else "#2E0A0A"
+            icon_id = self.canvas.create_text(
+                icon_x, icon_y, text=icon_text, fill=icon_color, font=("Segoe UI Emoji", 14), tags="status_icon"
+            )
+            ibbox = self.canvas.bbox(icon_id)
+            if ibbox:
+                irect_id = self.canvas.create_rectangle(
+                    ibbox[0] - 8, ibbox[1] - 4, ibbox[2] + 8, ibbox[3] + 4,
+                    fill=icon_bg, outline="#552222", width=1, tags="status_icon"
+                )
+                self.canvas.tag_raise(icon_id, irect_id)
+
+        # 2. Legenda informativa centralizada no topo
         if self.caption_mode == CaptionMode.NONE:
             return
 
-        win_w = self.canvas.winfo_width()
         filename = os.path.basename(path)
         current_num = self.history_pos + 1
         total_num = len(self.playlist)
 
-        is_fav = " ❤️" if self.favorites.is_favorite(path) else ""
+        tag_icon = " ❤️" if is_fav else (" ❌" if is_unl else "")
+
+        filter_tag = ""
+        if self.filter_mode == "FAVORITES":
+            filter_tag = " [Filtro: Favoritas]"
+        elif self.filter_mode == "UNLIKES":
+            filter_tag = " [Filtro: Unlikes]"
 
         if self.caption_mode == CaptionMode.COMPACT:
-            text = f"[{current_num}/{total_num}] {filename}{is_fav}"
+            text = f"[{current_num}/{total_num}]{filter_tag} {filename}{tag_icon}"
         elif self.caption_mode == CaptionMode.DETAILED:
             res_str = f"{self.current_pil_img.size[0]}x{self.current_pil_img.size[1]}" if self.current_pil_img else ""
             parent_dir = os.path.basename(os.path.dirname(path))
-            text = f"[{current_num}/{total_num}] {parent_dir}/{filename} ({res_str}){is_fav}"
+            text = f"[{current_num}/{total_num}]{filter_tag} {parent_dir}/{filename} ({res_str}){tag_icon}"
         else:
             return
 
@@ -538,13 +653,24 @@ class SlideshowApp:
     # --- Controles e Ações de Teclado ---
 
     def add_like(self, event=None):
-        """Adiciona a foto aos favoritos (Like) e grava no Excel (sem risco de remover)."""
+        """
+        Lógica progressiva de Like:
+        - Se possuir Unlike, o 1º aperto desfaz o unlike (volta a neutro).
+        - Se estiver neutro, aplica Like (coração ❤️).
+        - Se já for Like, informa que já está favoritado.
+        """
         path = self.get_current_image_path()
         if not path:
             return
 
+        if self.favorites.is_unliked(path):
+            self.favorites.remove_unlike(path)
+            self.show_toast("Unlike desfeito! (Foto neutra) ⚪", duration_ms=1800)
+            self._update_caption_overlay(path)
+            return
+
         if self.favorites.is_favorite(path):
-            self.show_toast("Esta foto já está favoritada! ❤️", duration_ms=1800)
+            self.show_toast("Esta foto já está favoritada! ❤️", duration_ms=1500)
             return
 
         metadata = {}
@@ -560,29 +686,186 @@ class SlideshowApp:
         self._update_caption_overlay(path)
 
     def remove_like(self, event=None):
-        """Remove a foto dos favoritos (Unlike) da planilha Excel."""
+        """
+        Lógica progressiva de Unlike / Dislike:
+        - Se possuir Like, o 1º aperto remove dos favoritos (volta a neutro).
+        - Se estiver neutro, aplica Unlike (X vermelho ❌).
+        - Se já for Unlike, informa que já está com unlike.
+        """
         path = self.get_current_image_path()
         if not path:
             return
 
-        if not self.favorites.is_favorite(path):
-            self.show_toast("Esta foto não está nos favoritos.", duration_ms=1500)
+        if self.favorites.is_favorite(path):
+            self.favorites.remove_favorite(path)
+            self.show_toast("Removida dos favoritos! 🤍", duration_ms=1800)
+            self._update_caption_overlay(path)
             return
 
-        self.favorites.remove_favorite(path)
-        self.show_toast("Removida dos favoritos! 🤍", duration_ms=1800)
+        if self.favorites.is_unliked(path):
+            self.show_toast("Esta foto já está marcada com unlike! ❌", duration_ms=1500)
+            return
+
+        metadata = {}
+        if self.current_pil_img:
+            metadata["resolution"] = f"{self.current_pil_img.size[0]}x{self.current_pil_img.size[1]}"
+        try:
+            metadata["size_kb"] = round(os.path.getsize(path) / 1024, 2)
+        except OSError:
+            pass
+
+        self.favorites.add_unlike(path, metadata)
+        self.show_toast("Marcada com Unlike! ❌ Salva no Excel.", duration_ms=1800)
         self._update_caption_overlay(path)
 
-    def toggle_filter_favorites(self, event=None):
-        """Alterna o filtro para exibir apenas as fotos favoritas."""
-        self.filter_only_favorites = not self.filter_only_favorites
-        if self.filter_only_favorites:
-            self.show_toast("Filtrando: Apenas Favoritas ❤️", duration_ms=1800)
-        else:
+    def toggle_filter(self, event=None):
+        """Alterna ciclo de filtros: Todas as fotos -> Apenas Favoritas -> Apenas Unlikes."""
+        modes = ["ALL", "FAVORITES", "UNLIKES"]
+        curr_idx = modes.index(self.filter_mode) if self.filter_mode in modes else 0
+        self.filter_mode = modes[(curr_idx + 1) % len(modes)]
+
+        if self.filter_mode == "ALL":
             self.show_toast("Exibindo: Todas as Fotos", duration_ms=1800)
+        elif self.filter_mode == "FAVORITES":
+            self.show_toast("Filtrando: Apenas Favoritas ❤️", duration_ms=1800)
+        elif self.filter_mode == "UNLIKES":
+            self.show_toast("Filtrando: Apenas Unlikes ❌", duration_ms=1800)
 
         self._apply_sort_order(reset_history=True)
         self.next_slide()
+
+    def toggle_filter_favorites(self, event=None):
+        """Compatibilidade: alterna ciclo de filtros."""
+        self.toggle_filter(event)
+
+    def toggle_status_icons(self, event=None):
+        """Alterna a visibilidade dos ícones de status (❤️ / ❌) no canto direito."""
+        self.show_status_icons = not self.show_status_icons
+        status = "Ativados" if self.show_status_icons else "Ocultos"
+        self.show_toast(f"Ícones de Status: {status}", duration_ms=1500)
+        self._save_current_config()
+        path = self.get_current_image_path()
+        if path:
+            self._update_caption_overlay(path)
+
+    def handle_delete_action(self, event=None):
+        """Trata tecla Delete: se estiver no modo unlikes executa exclusão em lote; senão unlike da foto atual."""
+        if self.filter_mode == "UNLIKES":
+            self.delete_all_unlikes()
+        else:
+            self.remove_like(event)
+
+    def delete_all_unlikes(self, event=None):
+        """
+        Quando (e somente quando) estiver filtrando os unlikes, lista as fotos marcadas,
+        solicita confirmação explícita e, se confirmado, apaga os arquivos do disco e do Excel.
+        """
+        if self.filter_mode != "UNLIKES":
+            self.show_toast("A exclusão em lote só é permitida no modo de filtro 'Apenas Unlikes'!", duration_ms=2500)
+            return
+
+        unliked_in_folder = [p for p in self.raw_image_paths if self.favorites.is_unliked(p)]
+        if not unliked_in_folder:
+            self.show_toast("Nenhuma foto com unlike nesta pasta para apagar.", duration_ms=2000)
+            return
+
+        # Pausa a apresentação durante o diálogo
+        was_paused = self.is_paused
+        self.is_paused = True
+        self._cancel_scheduled_jobs()
+
+        # Cria janela de confirmação detalhada com rolagem se necessário
+        confirm_win = tk.Toplevel(self.root)
+        confirm_win.title("Confirmar Exclusão de Fotos com Unlike")
+        confirm_win.geometry("620x450")
+        confirm_win.configure(bg="#222")
+        confirm_win.attributes("-topmost", True)
+        confirm_win.focus_force()
+
+        header_lbl = tk.Label(
+            confirm_win,
+            text=f"Atenção: {len(unliked_in_folder)} foto(s) com Unlike serão apagadas do disco!",
+            bg="#222",
+            fg="#FF5252",
+            font=("Helvetica", 11, "bold")
+        )
+        header_lbl.pack(pady=10)
+
+        txt_frame = tk.Frame(confirm_win, bg="#333")
+        txt_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
+
+        scrollbar = tk.Scrollbar(txt_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        txt_list = tk.Text(
+            txt_frame,
+            bg="#1E1E1E",
+            fg="#E0E0E0",
+            font=("Consolas", 9),
+            yscrollcommand=scrollbar.set,
+            wrap=tk.NONE
+        )
+        txt_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=txt_list.yview)
+
+        for p in unliked_in_folder:
+            txt_list.insert(tk.END, f"{os.path.basename(p)}  ({p})\n")
+        txt_list.config(state=tk.DISABLED)
+
+        btn_frame = tk.Frame(confirm_win, bg="#222")
+        btn_frame.pack(pady=12)
+
+        def do_delete():
+            confirm_win.destroy()
+            deleted_count = 0
+            for p in unliked_in_folder:
+                try:
+                    if os.path.exists(p):
+                        os.remove(p)
+                    self.favorites.remove_unlike(p)
+                    if p in self.raw_image_paths:
+                        self.raw_image_paths.remove(p)
+                    deleted_count += 1
+                except Exception as e:
+                    print(f"[Delete] Erro ao excluir '{p}': {e}")
+
+            self.show_toast(f"Concluído: {deleted_count} fotos excluídas do disco e desmarcadas!", duration_ms=3000)
+            self.filter_mode = "ALL"
+            self._apply_sort_order(reset_history=True)
+            self.is_paused = was_paused
+            self.next_slide()
+
+        def do_cancel():
+            confirm_win.destroy()
+            self.is_paused = was_paused
+            if not self.is_paused:
+                self.scheduled_next = self.root.after(self.delay_ms, self.next_slide)
+
+        btn_confirm = tk.Button(
+            btn_frame,
+            text="Sim, Apagar Definitivamente",
+            command=do_delete,
+            bg="#C62828",
+            fg="white",
+            font=("Helvetica", 10, "bold"),
+            padx=15,
+            pady=4
+        )
+        btn_confirm.pack(side=tk.LEFT, padx=10)
+
+        btn_cancel = tk.Button(
+            btn_frame,
+            text="Cancelar",
+            command=do_cancel,
+            bg="#555",
+            fg="white",
+            font=("Helvetica", 10),
+            padx=15,
+            pady=4
+        )
+        btn_cancel.pack(side=tk.LEFT, padx=10)
+
+        confirm_win.bind("<Escape>", lambda e: do_cancel())
 
     def prompt_custom_delay(self, event=None):
         """Abre janela para digitação direta do tempo de transição em segundos."""
@@ -602,6 +885,7 @@ class SlideshowApp:
 
         if val is not None:
             self.delay_ms = int(val * 1000)
+            self._save_current_config()
             self.show_toast(f"Novo intervalo: {val:.2f} segundos", duration_ms=2000)
 
         self.is_paused = was_paused
@@ -613,6 +897,7 @@ class SlideshowApp:
         orders = [SortOrder.RANDOM, SortOrder.DATE, SortOrder.NAME]
         curr_idx = orders.index(self.sort_order)
         self.sort_order = orders[(curr_idx + 1) % len(orders)]
+        self._save_current_config()
         self._apply_sort_order(reset_history=True)
         self.show_toast(f"Ordem: {self.sort_order.value}", duration_ms=2000)
         self.next_slide()
@@ -622,6 +907,7 @@ class SlideshowApp:
         modes = [FramingMode.FIT, FramingMode.FILL, FramingMode.PANORAMIC]
         curr_idx = modes.index(self.framing_mode)
         self.framing_mode = modes[(curr_idx + 1) % len(modes)]
+        self._save_current_config()
         self.show_toast(f"Enquadramento: {self.framing_mode.value}", duration_ms=2000)
         self._cancel_scheduled_jobs()
         self._render_current_slide()
@@ -631,6 +917,7 @@ class SlideshowApp:
         transitions = [TransitionMode.CROSSFADE, TransitionMode.HARD, TransitionMode.FADE_BLACK]
         curr_idx = transitions.index(self.transition_mode)
         self.transition_mode = transitions[(curr_idx + 1) % len(transitions)]
+        self._save_current_config()
         self.show_toast(f"Transição: {self.transition_mode.value}", duration_ms=2000)
 
     def cycle_caption(self, event=None):
@@ -638,6 +925,7 @@ class SlideshowApp:
         modes = [CaptionMode.NONE, CaptionMode.COMPACT, CaptionMode.DETAILED]
         curr_idx = modes.index(self.caption_mode)
         self.caption_mode = modes[(curr_idx + 1) % len(modes)]
+        self._save_current_config()
         self.show_toast(f"Legenda: {self.caption_mode.value}", duration_ms=1500)
         path = self.get_current_image_path()
         if path:
@@ -647,18 +935,29 @@ class SlideshowApp:
         """Alterna o modo de tela cheia com F11."""
         self.is_fullscreen = not self.is_fullscreen
         self.root.attributes("-fullscreen", self.is_fullscreen)
+        self._save_current_config()
         self.show_toast("Tela Cheia: Ativada" if self.is_fullscreen else "Tela Cheia: Desativada", duration_ms=1200)
 
     def toggle_enhancement(self, event=None):
         """Alterna a otimização inteligente de imagens em baixa resolução (Tecla E)."""
         self.enhancement_enabled = not self.enhancement_enabled
         status = "ATIVADA (Nitidez + Fundo Suave)" if self.enhancement_enabled else "DESATIVADA"
+        self._save_current_config()
         self.show_toast(f"Melhoria Baixa Resolução: {status}", duration_ms=2200)
         self._cancel_scheduled_jobs()
         self._render_current_slide()
 
     def on_escape(self, event=None):
-        """Se estiver em tela cheia sai dela; caso contrário fecha a aplicação."""
+        """
+        Escape prioritário:
+        - Se a janela de ajuda F1 estiver aberta, fecha apenas ela.
+        - Senão, se estiver em tela cheia sai dela; caso contrário fecha a aplicação.
+        """
+        if self.help_window and self.help_window.winfo_exists():
+            self.help_window.destroy()
+            self.help_window = None
+            return
+
         if self.is_fullscreen:
             self.toggle_fullscreen()
         else:
@@ -681,17 +980,20 @@ class SlideshowApp:
         """Acelera o intervalo do slide."""
         if self.delay_ms > 400:
             self.delay_ms = max(int(self.delay_ms * 0.75), 400)
+            self._save_current_config()
             self.show_toast(f"Velocidade: {self.delay_ms / 1000:.2f} s", duration_ms=1000)
 
     def speed_down(self, event=None):
         """Desacelera o intervalo do slide."""
         self.delay_ms = min(int(self.delay_ms * 1.35), 60000)
+        self._save_current_config()
         self.show_toast(f"Velocidade: {self.delay_ms / 1000:.2f} s", duration_ms=1000)
 
     def toggle_topmost(self, event=None):
         """Alterna fixação da janela no topo."""
         self.is_always_on_top = not self.is_always_on_top
         self.root.attributes("-topmost", self.is_always_on_top)
+        self._save_current_config()
         self.show_toast("Janela no Topo: Ativada" if self.is_always_on_top else "Janela no Topo: Desativada", duration_ms=1200)
 
     def on_window_resize(self, event):
@@ -702,13 +1004,28 @@ class SlideshowApp:
                 self._render_current_slide()
 
     def toggle_help_window(self, event=None):
-        """Abre janela flutuante com a documentação de atalhos e funções."""
+        """Abre ou fecha a janela de ajuda (toggle). Se já estiver aberta, fecha."""
+        if self.help_window and self.help_window.winfo_exists():
+            self.help_window.destroy()
+            self.help_window = None
+            return
+
         help_win = tk.Toplevel(self.root)
+        self.help_window = help_win
         help_win.title("Atalhos e Ajuda do Slideshow")
-        help_win.geometry("540x550")
+        help_win.geometry("570x610")
         help_win.configure(bg="#1E1E1E")
         help_win.resizable(False, False)
         help_win.attributes("-topmost", True)
+
+        def close_help(e=None):
+            if self.help_window and self.help_window.winfo_exists():
+                self.help_window.destroy()
+            self.help_window = None
+
+        help_win.protocol("WM_DELETE_WINDOW", close_help)
+        help_win.bind("<Escape>", close_help)
+        help_win.bind("<F1>", close_help)
 
         title_lbl = tk.Label(
             help_win,
@@ -717,10 +1034,10 @@ class SlideshowApp:
             fg="#4FC3F7",
             font=("Helvetica", 14, "bold")
         )
-        title_lbl.pack(pady=12)
+        title_lbl.pack(pady=10)
 
         help_data = [
-            ("F1", "Abrir / Fechar esta tela de ajuda"),
+            ("F1", "Abrir / Fechar esta tela de ajuda (Toggle)"),
             ("F11", "Alternar Tela Cheia"),
             ("Espaço", "Pausar / Retomar apresentação"),
             ("Seta Esquerda", "Foto Anterior (Histórico Infinito)"),
@@ -728,19 +1045,21 @@ class SlideshowApp:
             ("Seta Cima / Baixo", "Acelerar / Desacelerar intervalo"),
             ("D", "Digitar intervalo de tempo personalizado"),
             ("O", "Alternar Ordem (Aleatória / Data / Alfabética)"),
-            ("L", "Adicionar aos Favoritos (Like no Excel)"),
-            ("U / Del", "Remover dos Favoritos (Unlike do Excel)"),
-            ("F", "Filtrar: Exibir apenas fotos Favoritas"),
-            ("E", "Alternar Otimização Baixa Resolução (Padrão: Ativada)"),
-            ("C", "Alternar Legenda (Oculta / Nome / Detalhada)"),
+            ("L", "Like ❤️ (Se houver Unlike, desfaz o unlike primeiro)"),
+            ("U", "Unlike ❌ (Se houver Like, desfaz o like primeiro)"),
+            ("F", "Alternar Filtro (Todas -> Apenas Favoritas -> Apenas Unlikes)"),
+            ("I", "Alternar exibição dos Ícones de Status (❤️ / ❌)"),
+            ("Shift+Delete", "Apagar do disco todas as fotos com Unlike (no filtro Unlikes)"),
+            ("E", "Alternar Otimização Baixa Resolução"),
+            ("C", "Alternar Legenda (Oculta / Compacta / Detalhada)"),
             ("M", "Modo Enquadramento (Ajustar / Zoom / Panorâmico)"),
             ("X", "Modo Transição (Suave Crossfade / Dura / Fade)"),
-            ("T / P", "Alternar Janela sempre no Topo (Sempre Visível)"),
-            ("Esc", "Sair da Tela Cheia ou Fechar programa"),
+            ("T / P", "Alternar Janela sempre no Topo"),
+            ("Esc", "Fechar Ajuda (se aberta) / Sair Tela Cheia / Sair"),
         ]
 
-        frame_table = tk.Frame(help_win, bg="#2A2A2A", padx=10, pady=10)
-        frame_table.pack(padx=20, pady=5, fill=tk.BOTH, expand=True)
+        frame_table = tk.Frame(help_win, bg="#2A2A2A", padx=10, pady=5)
+        frame_table.pack(padx=15, pady=5, fill=tk.BOTH, expand=True)
 
         for row, (key, desc) in enumerate(help_data):
             lbl_key = tk.Label(
@@ -748,40 +1067,39 @@ class SlideshowApp:
                 text=key,
                 bg="#3A3A3A",
                 fg="#FFD54F",
-                font=("Helvetica", 9, "bold"),
-                padx=8,
-                pady=2,
+                font=("Helvetica", 8, "bold"),
+                padx=6,
+                pady=1,
                 relief=tk.RIDGE
             )
-            lbl_key.grid(row=row, column=0, padx=5, pady=2, sticky=tk.W)
+            lbl_key.grid(row=row, column=0, padx=4, pady=2, sticky=tk.W)
 
             lbl_desc = tk.Label(
                 frame_table,
                 text=desc,
                 bg="#2A2A2A",
                 fg="#E0E0E0",
-                font=("Helvetica", 9),
-                padx=5
+                font=("Helvetica", 8),
+                padx=4
             )
-            lbl_desc.grid(row=row, column=1, padx=5, pady=2, sticky=tk.W)
+            lbl_desc.grid(row=row, column=1, padx=4, pady=2, sticky=tk.W)
 
         btn_close = tk.Button(
             help_win,
             text="Fechar (Esc)",
-            command=help_win.destroy,
+            command=close_help,
             bg="#333",
             fg="white",
             relief=tk.FLAT,
-            font=("Helvetica", 10, "bold"),
+            font=("Helvetica", 9, "bold"),
             padx=15,
-            pady=4
+            pady=3
         )
-        btn_close.pack(pady=10)
-        help_win.bind("<Escape>", lambda e: help_win.destroy())
-        help_win.bind("<F1>", lambda e: help_win.destroy())
+        btn_close.pack(pady=8)
 
     def quit_app(self, event=None):
-        """Finaliza a aplicação restaurando as configurações de energia."""
+        """Finaliza a aplicação persistindo as configurações e restaurando energia."""
         self._cancel_scheduled_jobs()
+        self._save_current_config()
         OneDriveVaultManager.restore_system_sleep()
         self.root.destroy()

@@ -60,11 +60,12 @@ def test_blend_images():
     assert blended.size == (100, 100)
 
 
-def test_favorites_manager():
+def test_favorites_and_unlikes_manager():
     with tempfile.TemporaryDirectory() as tmpdir:
         excel_path = Path(tmpdir) / "test_favoritos.xlsx"
         fav = FavoritesManager(excel_path=excel_path)
         assert fav.favorites_count == 0
+        assert fav.unlikes_count == 0
 
         fake_photo = os.path.join(tmpdir, "foto1.jpg")
         with open(fake_photo, "wb") as f:
@@ -74,24 +75,128 @@ def test_favorites_manager():
         added = fav.add_favorite(fake_photo, {"resolution": "1920x1080", "size_kb": 12.5})
         assert added is True
         assert fav.is_favorite(fake_photo) is True
+        assert fav.is_unliked(fake_photo) is False
         assert fav.favorites_count == 1
         assert excel_path.exists()
 
-        # Tentar adicionar novamente não deve duplicar nem remover
-        added_again = fav.add_favorite(fake_photo)
-        assert added_again is False
-        assert fav.is_favorite(fake_photo) is True
-        assert fav.favorites_count == 1
+        # Adicionar unlike deve remover do like e colocar no unlike
+        unl_added = fav.add_unlike(fake_photo)
+        assert unl_added is True
+        assert fav.is_unliked(fake_photo) is True
+        assert fav.is_favorite(fake_photo) is False
+        assert fav.unlikes_count == 1
+        assert fav.favorites_count == 0
 
-        # Remove like com método dedicado
-        removed = fav.remove_favorite(fake_photo)
-        assert removed is True
+        # Adicionar like de volta deve remover do unlike e colocar no like
+        fav_back = fav.add_favorite(fake_photo)
+        assert fav_back is True
+        assert fav.is_favorite(fake_photo) is True
+        assert fav.is_unliked(fake_photo) is False
+
+        # Remover like
+        assert fav.remove_favorite(fake_photo) is True
         assert fav.is_favorite(fake_photo) is False
         assert fav.favorites_count == 0
 
-        # Tentar remover novamente retorna False
-        removed_again = fav.remove_favorite(fake_photo)
-        assert removed_again is False
+        # Testar persistência de configurações
+        config_to_save = {
+            "delay_seconds": 4.5,
+            "framing_mode": "panoramic",
+            "transition_mode": "fade_black",
+            "sort_order": "date",
+            "caption_mode": "compact",
+            "is_fullscreen": True,
+            "is_always_on_top": True,
+            "enhancement_enabled": False,
+            "show_status_icons": False,
+        }
+        fav.save_config(config_to_save)
+
+        # Recarrega em nova instância do FavoritesManager
+        fav_reloaded = FavoritesManager(excel_path=excel_path)
+        loaded_cfg = fav_reloaded.load_config()
+        assert loaded_cfg["delay_seconds"] == "4.5"
+        assert loaded_cfg["framing_mode"] == "panoramic"
+        assert loaded_cfg["show_status_icons"] == "False"
+        assert loaded_cfg["is_fullscreen"] == "True"
+
+
+def test_app_like_unlike_progressive_logic():
+    import tkinter as tk
+    from slideshow.app import SlideshowApp
+    with tempfile.TemporaryDirectory() as tmpdir:
+        excel_path = Path(tmpdir) / "test_app_fav.xlsx"
+        img1 = os.path.join(tmpdir, "img1.png")
+        Image.new("RGB", (100, 100), color="blue").save(img1)
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            app = SlideshowApp(root=root, all_image_paths=[img1], delay_seconds=2.0)
+            app.favorites = FavoritesManager(excel_path=excel_path)
+
+            # Estado inicial: neutro
+            assert app.favorites.is_favorite(img1) is False
+            assert app.favorites.is_unliked(img1) is False
+
+            # Dá Unlike (U): foto neutra vira unlike
+            app.remove_like()
+            assert app.favorites.is_unliked(img1) is True
+            assert app.favorites.is_favorite(img1) is False
+
+            # Aperta Like (L): 1º aperto desfaz unlike (volta a neutro)
+            app.add_like()
+            assert app.favorites.is_unliked(img1) is False
+            assert app.favorites.is_favorite(img1) is False
+
+            # Aperta Like (L) de novo: foto neutra vira Like
+            app.add_like()
+            assert app.favorites.is_favorite(img1) is True
+            assert app.favorites.is_unliked(img1) is False
+
+            # Aperta Unlike (U): 1º aperto desfaz Like (volta a neutro)
+            app.remove_like()
+            assert app.favorites.is_favorite(img1) is False
+            assert app.favorites.is_unliked(img1) is False
+
+            # Teste F1 toggle
+            assert app.help_window is None
+            app.toggle_help_window()
+            assert app.help_window is not None
+            assert app.help_window.winfo_exists()
+
+            # F1 de novo fecha
+            app.toggle_help_window()
+            assert app.help_window is None
+
+            # Abre ajuda e testa Escape prioritário
+            app.toggle_help_window()
+            assert app.help_window is not None
+            # on_escape deve fechar apenas a ajuda
+            app.on_escape()
+            assert app.help_window is None
+
+            # Toggle status icons
+            assert app.show_status_icons is True
+            app.toggle_status_icons()
+            assert app.show_status_icons is False
+
+            # Favorita img1 para permitir o modo FAVORITES
+            app.favorites.add_favorite(img1)
+            assert app.filter_mode == "ALL"
+            app.toggle_filter()
+            assert app.filter_mode == "FAVORITES"
+
+            # Marca img1 como unlike para permitir o modo UNLIKES
+            app.favorites.add_unlike(img1)
+            app.toggle_filter()
+            assert app.filter_mode == "UNLIKES"
+            app.toggle_filter()
+            assert app.filter_mode == "ALL"
+
+        finally:
+            root.destroy()
+
 
 
 def test_buffer_vault_only():

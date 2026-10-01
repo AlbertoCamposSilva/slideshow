@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "slideshow-vault"
-version = "1.1.0"
+version = "1.2.0"
 description = "Apresentador de slides moderno, resiliente a OneDrive Personal Vault, com transições suaves, favoritos em Excel e controle avançado."
 readme = "README.md"
 requires-python = ">=3.9"

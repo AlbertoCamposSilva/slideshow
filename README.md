@@ -22,16 +22,21 @@ Um apresentador de slides moderno, resiliente, modular e extensível para Window
   - **Panorâmico (Ken Burns Pan & Scan)**: A foto preenche a janela e se move suavemente de uma borda a outra durante o slide.
 - **Histórico Infinito no Modo Aleatório**:
   - O botão de voltar (Seta Esquerda) funciona retroativamente por toda a trilha de fotos exibidas, sem limite.
-- **Sistema de Likes / Favoritos em Excel (.xlsx)**:
-  - Pressione **`L`** para curtir/descurtir fotos.
-  - Gravado automaticamente na planilha centralizada: `~/slideshow_favoritos.xlsx`.
-  - Pressione **`F`** para filtrar e exibir apenas fotos favoritas.
-- **Legenda Configurável**:
-  - Pressione **`C`** para alternar entre: Oculta, Compacta (`[1/150] foto.jpg ❤️`) ou Detalhada (pasta, resolução, data).
-- **Controle de Tempo Interativo**:
-  - Pressione **`D`** para digitar diretamente o intervalo em segundos (ex: `2.5`, `5`, `10`).
-- **Tela Cheia com F11**: Alterna instantaneamente com a tecla **F11**.
-- **Janela de Ajuda com F1**: Tela flutuante com todos os atalhos disponíveis.
+- **Sistema de Likes, Unlikes e Favoritos em Excel (.xlsx)**:
+  - Registrado automaticamente na planilha centralizada: `~/slideshow_favoritos.xlsx`.
+  - **Like (`L`)**: adiciona aos favoritos. Se a foto possuir Unlike, o primeiro toque cancela o unlike.
+  - **Unlike (`U`)**: marca como unlike. Se a foto possuir Like, o primeiro toque desfaz o like.
+  - **Ícones de Status Visuais**: exibe ❤️ (Like) ou ❌ (Unlike) no canto superior direito (alternável via tecla **`I`**).
+  - **Filtro Trilateral (`F`)**: alterna entre *Todas as Fotos*, *Apenas Favoritas* e *Apenas Unlikes*.
+  - **Exclusão em Lote (`Shift+Delete`)**: quando no modo de filtro *Apenas Unlikes*, permite listar e apagar permanentemente todas as fotos com unlike do disco após confirmação segura.
+- **Persistência Automática de Preferências**:
+  - Salva automaticamente as últimas configurações (velocidade, enquadramento, transição, ordem, legenda, tela cheia, fixação no topo e melhoria de baixa resolução) na aba `Configuracoes` da planilha do usuário.
+  - Ao abrir o Slideshow novamente, suas preferências são restauradas instantaneamente.
+- **Otimização Inteligente de Fotos em Baixa Resolução (`E`)**:
+  - Reescalonamento Lanczos de alta precisão, filtro Unsharp Mask adaptativo, granulação analógica suave (Film Grain) e desfoque de fundo ambiente.
+- **Janela de Ajuda Interativa (`F1`) e Controle com `Esc`**:
+  - A tecla **`F1`** abre e fecha a documentação de atalhos (*Toggle*).
+  - A tecla **`Esc`** fecha prioritariamente a janela de ajuda sem sair da tela cheia ou encerrar o slideshow.
 - **Compilável com Nuitka e PyInstaller**: Scripts prontos para gerar executável standalone para Windows.
 
 ---

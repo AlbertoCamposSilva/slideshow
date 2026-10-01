@@ -1,6 +1,6 @@
 """Slideshow Pro - Visualizador de fotos moderno, resiliente e extensível."""
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 from slideshow.app import SlideshowApp
 from slideshow.core import run_slideshow, find_image_files

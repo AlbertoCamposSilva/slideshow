@@ -1,288 +1,305 @@
-"""Módulo para gerenciamento de curtidas (Likes/Favoritos) salvas em planilha Excel (.xlsx)."""
+"""Gerenciamento de curtidas (Likes/Favoritos), unlikes e configurações persistentes em SQLite.
+
+O banco é a fonte da verdade. A planilha Excel (.xlsx) passa a ser apenas formato de
+intercâmbio: `export_xlsx` gera uma cópia legível e `import_xlsx` substitui todo o conteúdo
+do banco pelo da planilha (replace all).
+"""
 
 import os
+import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
-from typing import Set, Optional, Dict, Any
+from typing import Any, Dict, List, Optional, Set, Tuple
+
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.styles import Alignment, Font, PatternFill
 
 
-DEFAULT_FAVORITES_FILE = Path.home() / "slideshow_favoritos.xlsx"
+DEFAULT_DB_FILE = Path.home() / "slideshow_favoritos.db"
+
+KIND_LIKE = "like"
+KIND_UNLIKE = "unlike"
+
+_SHEET_BY_KIND = {KIND_LIKE: "Favoritos", KIND_UNLIKE: "Unlikes"}
+_COLOR_BY_KIND = {KIND_LIKE: "2F5597", KIND_UNLIKE: "C00000"}
+_PHOTO_HEADERS = [
+    "Caminho Completo",
+    "Nome do Arquivo",
+    "Data/Hora",
+    "Resolução",
+    "Tamanho (KB)",
+    "Pasta de Origem",
+]
+_CONFIG_SHEET = "Configuracoes"
+_CONFIG_HEADERS = ["Chave", "Valor", "Ultima_Atualizacao"]
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS photos (
+    path_norm  TEXT PRIMARY KEY,
+    kind       TEXT NOT NULL CHECK (kind IN ('like', 'unlike')),
+    path       TEXT NOT NULL,
+    filename   TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    resolution TEXT NOT NULL DEFAULT '',
+    size_kb    REAL NOT NULL DEFAULT 0,
+    folder     TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_photos_kind ON photos(kind);
+CREATE TABLE IF NOT EXISTS config (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"""
+
+# (path_norm, kind, path, filename, created_at, resolution, size_kb, folder)
+_PhotoRow = Tuple[str, str, str, str, str, str, float, str]
+# (key, value, updated_at)
+_ConfigRow = Tuple[str, str, str]
+
+
+def _now() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 class FavoritesManager:
-    """Gerencia favoritos, unlikes e configurações persistentes em uma planilha Excel."""
+    """Gerencia favoritos, unlikes e configurações persistentes em um banco SQLite."""
 
-    def __init__(self, excel_path: Optional[Path] = None):
-        self.excel_path = Path(excel_path) if excel_path else DEFAULT_FAVORITES_FILE
+    def __init__(self, db_path: Optional[Path] = None):
+        self.db_path = Path(db_path) if db_path else DEFAULT_DB_FILE
         self._favorites: Set[str] = set()
         self._unlikes: Set[str] = set()
+        self._init_db()
         self._load()
 
-    def _normalize_path(self, path: str) -> str:
+    # --- Infraestrutura ---
+
+    def _connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(self.db_path, timeout=10)
+
+    def _init_db(self):
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        with closing(self._connect()) as conn, conn:
+            conn.executescript(_SCHEMA)
+
+    @staticmethod
+    def _normalize_path(path: str) -> str:
         """Normaliza caminho para comparação exata (insensível a maiúsculas no Windows)."""
         return os.path.normcase(os.path.abspath(path))
 
-    def _setup_sheet_headers(self, ws, title: str, header_color: str):
-        """Configura os cabeçalhos padrão para abas de Favoritos ou Unlikes."""
-        ws.title = title
-        headers = [
-            "Caminho Completo",
-            "Nome do Arquivo",
-            "Data/Hora",
-            "Resolução",
-            "Tamanho (KB)",
-            "Pasta de Origem"
-        ]
-        ws.append(headers)
-
-        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color=header_color, end_color=header_color, fill_type="solid")
-        center_align = Alignment(horizontal="center", vertical="center")
-
-        for col_num, _ in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col_num)
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = center_align
-
-        col_widths = {1: 60, 2: 30, 3: 20, 4: 15, 5: 15, 6: 45}
-        for col_num, width in col_widths.items():
-            col_letter = openpyxl.utils.get_column_letter(col_num)
-            ws.column_dimensions[col_letter].width = width
-
-    def _ensure_file_exists(self):
-        """Garante que a planilha exista com as abas Favoritos, Unlikes e Configuracoes."""
-        if self.excel_path.exists():
-            return
-
-        wb = openpyxl.Workbook()
-        # 1. Aba Favoritos
-        ws_fav = wb.active
-        self._setup_sheet_headers(ws_fav, "Favoritos", "2F5597")
-
-        # 2. Aba Unlikes
-        ws_unl = wb.create_sheet("Unlikes")
-        self._setup_sheet_headers(ws_unl, "Unlikes", "C00000")
-
-        # 3. Aba Configuracoes
-        ws_cfg = wb.create_sheet("Configuracoes")
-        ws_cfg.append(["Chave", "Valor", "Ultima_Atualizacao"])
-        cfg_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-        cfg_fill = PatternFill(start_color="375623", end_color="375623", fill_type="solid")
-        for col_idx in (1, 2, 3):
-            c = ws_cfg.cell(row=1, column=col_idx)
-            c.font = cfg_font
-            c.fill = cfg_fill
-            c.alignment = Alignment(horizontal="center", vertical="center")
-        ws_cfg.column_dimensions["A"].width = 25
-        ws_cfg.column_dimensions["B"].width = 30
-        ws_cfg.column_dimensions["C"].width = 22
-
-        self.excel_path.parent.mkdir(parents=True, exist_ok=True)
-        wb.save(self.excel_path)
-
     def _load(self):
-        """Carrega caminhos favoritados e unliked da planilha Excel."""
+        """Recarrega os conjuntos em memória a partir do banco."""
         self._favorites.clear()
         self._unlikes.clear()
-        if not self.excel_path.exists():
-            return
+        with closing(self._connect()) as conn:
+            for path_norm, kind in conn.execute("SELECT path_norm, kind FROM photos"):
+                (self._favorites if kind == KIND_LIKE else self._unlikes).add(path_norm)
 
-        try:
-            wb = openpyxl.load_workbook(self.excel_path, read_only=True)
-            if "Favoritos" in wb.sheetnames:
-                ws = wb["Favoritos"]
-                for row in ws.iter_rows(min_row=2, values_only=True):
-                    if row and row[0]:
-                        self._favorites.add(self._normalize_path(str(row[0])))
-
-            if "Unlikes" in wb.sheetnames:
-                ws_unl = wb["Unlikes"]
-                for row in ws_unl.iter_rows(min_row=2, values_only=True):
-                    if row and row[0]:
-                        self._unlikes.add(self._normalize_path(str(row[0])))
-
-            wb.close()
-        except Exception as e:
-            print(f"[Favoritos] Erro ao carregar planilha '{self.excel_path}': {e}")
-
-    # --- Métodos de Favoritos (Likes) ---
+    # --- Likes e Unlikes ---
 
     def is_favorite(self, path: str) -> bool:
         """Verifica se o arquivo está favoritado."""
         return self._normalize_path(path) in self._favorites
 
-    def add_favorite(self, path: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
-        """Adiciona aos favoritos e remove de unlikes se presente."""
-        norm_path = self._normalize_path(path)
-        if norm_path in self._favorites:
-            return False
-
-        if norm_path in self._unlikes:
-            self.remove_unlike(path)
-
-        self._append_row("Favoritos", path, norm_path, metadata)
-        self._favorites.add(norm_path)
-        return True
-
-    def remove_favorite(self, path: str) -> bool:
-        """Remove a imagem dos favoritos."""
-        norm_path = self._normalize_path(path)
-        if norm_path not in self._favorites:
-            return False
-        self._delete_row("Favoritos", path, norm_path)
-        self._favorites.discard(norm_path)
-        return True
-
-    # --- Métodos de Unlikes (Dislikes) ---
-
     def is_unliked(self, path: str) -> bool:
         """Verifica se o arquivo está marcado com unlike."""
         return self._normalize_path(path) in self._unlikes
 
+    def add_favorite(self, path: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """Adiciona aos favoritos (substitui um unlike existente)."""
+        return self._set_kind(path, KIND_LIKE, metadata)
+
     def add_unlike(self, path: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
-        """Adiciona aos unlikes e remove de favoritos se presente."""
-        norm_path = self._normalize_path(path)
-        if norm_path in self._unlikes:
-            return False
+        """Adiciona aos unlikes (substitui um favorito existente)."""
+        return self._set_kind(path, KIND_UNLIKE, metadata)
 
-        if norm_path in self._favorites:
-            self.remove_favorite(path)
-
-        self._append_row("Unlikes", path, norm_path, metadata)
-        self._unlikes.add(norm_path)
-        return True
+    def remove_favorite(self, path: str) -> bool:
+        """Remove a imagem dos favoritos."""
+        return self._remove(path, KIND_LIKE)
 
     def remove_unlike(self, path: str) -> bool:
         """Remove a imagem dos unlikes."""
-        norm_path = self._normalize_path(path)
-        if norm_path not in self._unlikes:
+        return self._remove(path, KIND_UNLIKE)
+
+    def _set_kind(self, path: str, kind: str, metadata: Optional[Dict[str, Any]]) -> bool:
+        norm = self._normalize_path(path)
+        mine, other = (
+            (self._favorites, self._unlikes) if kind == KIND_LIKE else (self._unlikes, self._favorites)
+        )
+        if norm in mine:
             return False
-        self._delete_row("Unlikes", path, norm_path)
-        self._unlikes.discard(norm_path)
+
+        resolution = ""
+        size_kb = 0.0
+        if metadata:
+            resolution = str(metadata.get("resolution", ""))
+            size_kb = float(metadata.get("size_kb", 0.0))
+        else:
+            try:
+                size_kb = round(os.path.getsize(path) / 1024, 2)
+            except OSError:
+                pass
+
+        try:
+            with closing(self._connect()) as conn, conn:
+                # PRIMARY KEY em path_norm garante exclusão mútua entre like e unlike.
+                conn.execute(
+                    "INSERT OR REPLACE INTO photos VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (norm, kind, path, os.path.basename(path), _now(),
+                     resolution, size_kb, os.path.dirname(path)),
+                )
+        except sqlite3.Error as e:
+            print(f"[Favoritos] Erro ao gravar '{path}': {e}")
+            return False
+
+        other.discard(norm)
+        mine.add(norm)
         return True
 
-    # --- Métodos Genéricos de Manipulação de Planilha ---
-
-    def _append_row(self, sheet_name: str, raw_path: str, norm_path: str, metadata: Optional[Dict[str, Any]] = None):
-        """Adiciona uma linha formatada à aba especificada."""
-        self._ensure_file_exists()
+    def _remove(self, path: str, kind: str) -> bool:
+        norm = self._normalize_path(path)
+        bucket = self._favorites if kind == KIND_LIKE else self._unlikes
+        if norm not in bucket:
+            return False
         try:
-            wb = openpyxl.load_workbook(self.excel_path)
-            if sheet_name not in wb.sheetnames:
-                ws = wb.create_sheet(sheet_name)
-                color = "C00000" if sheet_name == "Unlikes" else "2F5597"
-                self._setup_sheet_headers(ws, sheet_name, color)
-            else:
-                ws = wb[sheet_name]
-
-            filename = os.path.basename(raw_path)
-            folder = os.path.dirname(raw_path)
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            resolution = ""
-            size_kb = 0.0
-
-            if metadata:
-                resolution = metadata.get("resolution", "")
-                size_kb = metadata.get("size_kb", 0.0)
-            else:
-                try:
-                    size_kb = round(os.path.getsize(raw_path) / 1024, 2)
-                except OSError:
-                    pass
-
-            row_data = [raw_path, filename, now_str, resolution, size_kb, folder]
-            ws.append(row_data)
-            wb.save(self.excel_path)
-        except Exception as e:
-            print(f"[Favoritos] Erro ao adicionar linha em '{sheet_name}' na planilha: {e}")
-
-    def _delete_row(self, sheet_name: str, raw_path: str, norm_path: str):
-        """Remove uma linha da aba correspondente."""
-        if not self.excel_path.exists():
-            return
-
-        try:
-            wb = openpyxl.load_workbook(self.excel_path)
-            if sheet_name not in wb.sheetnames:
-                return
-            ws = wb[sheet_name]
-
-            row_to_delete = None
-            for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-                if row and row[0] and self._normalize_path(str(row[0])) == norm_path:
-                    row_to_delete = row_idx
-                    break
-
-            if row_to_delete:
-                ws.delete_rows(row_to_delete, 1)
-                wb.save(self.excel_path)
-        except Exception as e:
-            print(f"[Favoritos] Erro ao remover linha de '{sheet_name}' na planilha: {e}")
+            with closing(self._connect()) as conn, conn:
+                conn.execute("DELETE FROM photos WHERE path_norm = ? AND kind = ?", (norm, kind))
+        except sqlite3.Error as e:
+            print(f"[Favoritos] Erro ao remover '{path}': {e}")
+            return False
+        bucket.discard(norm)
+        return True
 
     # --- Persistência de Configurações ---
 
     def load_config(self) -> Dict[str, Any]:
-        """Carrega o dicionário de configurações salvas no Excel."""
-        config: Dict[str, Any] = {}
-        if not self.excel_path.exists():
-            return config
-
+        """Carrega o dicionário de configurações salvas."""
         try:
-            wb = openpyxl.load_workbook(self.excel_path, read_only=True)
-            if "Configuracoes" in wb.sheetnames:
-                ws = wb["Configuracoes"]
-                for row in ws.iter_rows(min_row=2, values_only=True):
-                    if row and row[0] is not None:
-                        key = str(row[0]).strip()
-                        val = row[1]
-                        config[key] = val
-            wb.close()
-        except Exception as e:
-            print(f"[Config] Erro ao carregar configurações de '{self.excel_path}': {e}")
-        return config
+            with closing(self._connect()) as conn:
+                return dict(conn.execute("SELECT key, value FROM config"))
+        except sqlite3.Error as e:
+            print(f"[Config] Erro ao carregar configurações de '{self.db_path}': {e}")
+            return {}
 
     def save_config(self, config_dict: Dict[str, Any]):
-        """Salva ou atualiza pares chave-valor na aba 'Configuracoes' do Excel."""
-        self._ensure_file_exists()
+        """Salva ou atualiza pares chave-valor de configuração."""
+        now = _now()
+        rows = [(str(k).strip(), str(v), now) for k, v in config_dict.items()]
         try:
-            wb = openpyxl.load_workbook(self.excel_path)
-            if "Configuracoes" not in wb.sheetnames:
-                ws = wb.create_sheet("Configuracoes")
-                ws.append(["Chave", "Valor", "Ultima_Atualizacao"])
-                cfg_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-                cfg_fill = PatternFill(start_color="375623", end_color="375623", fill_type="solid")
-                for col_idx in (1, 2, 3):
-                    c = ws.cell(row=1, column=col_idx)
-                    c.font = cfg_font
-                    c.fill = cfg_fill
-                    c.alignment = Alignment(horizontal="center", vertical="center")
-            else:
-                ws = wb["Configuracoes"]
+            with closing(self._connect()) as conn, conn:
+                conn.executemany("INSERT OR REPLACE INTO config VALUES (?, ?, ?)", rows)
+        except sqlite3.Error as e:
+            print(f"[Config] Erro ao salvar configurações em '{self.db_path}': {e}")
 
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # --- Exportação / Importação (Excel) ---
 
-            # Mapeia linhas existentes por chave
-            existing_keys: Dict[str, int] = {}
-            for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-                if row and row[0] is not None:
-                    existing_keys[str(row[0]).strip()] = row_idx
+    def export_xlsx(self, xlsx_path: Path) -> Tuple[int, int]:
+        """Exporta favoritos, unlikes e configurações para um .xlsx. Retorna (likes, unlikes)."""
+        xlsx_path = Path(xlsx_path)
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
 
-            for key, val in config_dict.items():
-                str_key = str(key).strip()
-                if str_key in existing_keys:
-                    row_idx = existing_keys[str_key]
-                    ws.cell(row=row_idx, column=2, value=str(val))
-                    ws.cell(row=row_idx, column=3, value=now_str)
-                else:
-                    ws.append([str_key, str(val), now_str])
+        with closing(self._connect()) as conn:
+            counts = {}
+            for kind in (KIND_LIKE, KIND_UNLIKE):
+                ws = wb.create_sheet(_SHEET_BY_KIND[kind])
+                self._style_header(ws, _PHOTO_HEADERS, _COLOR_BY_KIND[kind])
+                rows = conn.execute(
+                    "SELECT path, filename, created_at, resolution, size_kb, folder "
+                    "FROM photos WHERE kind = ? ORDER BY created_at, rowid",
+                    (kind,),
+                ).fetchall()
+                for row in rows:
+                    ws.append(list(row))
+                for letter, width in zip("ABCDEF", (60, 30, 20, 15, 15, 45)):
+                    ws.column_dimensions[letter].width = width
+                counts[kind] = len(rows)
 
-            wb.save(self.excel_path)
-        except Exception as e:
-            print(f"[Config] Erro ao salvar configurações em '{self.excel_path}': {e}")
+            ws_cfg = wb.create_sheet(_CONFIG_SHEET)
+            self._style_header(ws_cfg, _CONFIG_HEADERS, "375623")
+            for row in conn.execute("SELECT key, value, updated_at FROM config ORDER BY key"):
+                ws_cfg.append(list(row))
+            for letter, width in zip("ABC", (25, 30, 22)):
+                ws_cfg.column_dimensions[letter].width = width
+
+        xlsx_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = xlsx_path.with_name(xlsx_path.name + ".tmp")
+        wb.save(tmp)
+        os.replace(tmp, xlsx_path)
+        return counts[KIND_LIKE], counts[KIND_UNLIKE]
+
+    def import_xlsx(self, xlsx_path: Path) -> Tuple[int, int]:
+        """Substitui TODO o conteúdo do banco pelo da planilha. Retorna (likes, unlikes).
+
+        A planilha é lida e validada por completo antes de qualquer alteração; em caso de erro
+        o banco permanece intacto. A gravação ocorre numa única transação.
+        """
+        xlsx_path = Path(xlsx_path)
+        wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
+        try:
+            known = {_SHEET_BY_KIND[KIND_LIKE], _SHEET_BY_KIND[KIND_UNLIKE], _CONFIG_SHEET}
+            if not known & set(wb.sheetnames):
+                raise ValueError(
+                    "Planilha inválida: nenhuma das abas 'Favoritos', 'Unlikes' ou "
+                    "'Configuracoes' foi encontrada."
+                )
+
+            photos: Dict[str, _PhotoRow] = {}
+            # Unlikes primeiro: se o mesmo caminho estiver nas duas abas, o Like prevalece.
+            for kind in (KIND_UNLIKE, KIND_LIKE):
+                sheet = _SHEET_BY_KIND[kind]
+                if sheet not in wb.sheetnames:
+                    continue
+                for row in wb[sheet].iter_rows(min_row=2, values_only=True):
+                    if not row or not row[0]:
+                        continue
+                    row = list(row) + [None] * (6 - len(row))
+                    raw = str(row[0])
+                    norm = self._normalize_path(raw)
+                    try:
+                        size_kb = float(row[4]) if row[4] not in (None, "") else 0.0
+                    except (TypeError, ValueError):
+                        size_kb = 0.0
+                    photos[norm] = (
+                        norm, kind, raw,
+                        str(row[1]) if row[1] else os.path.basename(raw),
+                        str(row[2]) if row[2] else _now(),
+                        str(row[3]) if row[3] else "",
+                        size_kb,
+                        str(row[5]) if row[5] else os.path.dirname(raw),
+                    )
+
+            config: List[_ConfigRow] = []
+            if _CONFIG_SHEET in wb.sheetnames:
+                for row in wb[_CONFIG_SHEET].iter_rows(min_row=2, values_only=True):
+                    if row and row[0] is not None and row[1] is not None:
+                        config.append((
+                            str(row[0]).strip(),
+                            str(row[1]),
+                            str(row[2]) if len(row) > 2 and row[2] else _now(),
+                        ))
+        finally:
+            wb.close()
+
+        with closing(self._connect()) as conn, conn:
+            conn.execute("DELETE FROM photos")
+            conn.execute("DELETE FROM config")
+            conn.executemany("INSERT INTO photos VALUES (?, ?, ?, ?, ?, ?, ?, ?)", photos.values())
+            conn.executemany("INSERT OR REPLACE INTO config VALUES (?, ?, ?)", config)
+
+        self._load()
+        return self.favorites_count, self.unlikes_count
+
+    @staticmethod
+    def _style_header(ws, headers: List[str], color: str):
+        ws.append(headers)
+        font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+        align = Alignment(horizontal="center", vertical="center")
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col)
+            cell.font, cell.fill, cell.alignment = font, fill, align
 
     @property
     def favorites_count(self) -> int:

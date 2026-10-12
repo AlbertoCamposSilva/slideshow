@@ -62,8 +62,8 @@ def test_blend_images():
 
 def test_favorites_and_unlikes_manager():
     with tempfile.TemporaryDirectory() as tmpdir:
-        excel_path = Path(tmpdir) / "test_favoritos.xlsx"
-        fav = FavoritesManager(excel_path=excel_path)
+        db_path = Path(tmpdir) / "test_favoritos.db"
+        fav = FavoritesManager(db_path=db_path)
         assert fav.favorites_count == 0
         assert fav.unlikes_count == 0
 
@@ -77,7 +77,7 @@ def test_favorites_and_unlikes_manager():
         assert fav.is_favorite(fake_photo) is True
         assert fav.is_unliked(fake_photo) is False
         assert fav.favorites_count == 1
-        assert excel_path.exists()
+        assert db_path.exists()
 
         # Adicionar unlike deve remover do like e colocar no unlike
         unl_added = fav.add_unlike(fake_photo)
@@ -113,7 +113,7 @@ def test_favorites_and_unlikes_manager():
         fav.save_config(config_to_save)
 
         # Recarrega em nova instância do FavoritesManager
-        fav_reloaded = FavoritesManager(excel_path=excel_path)
+        fav_reloaded = FavoritesManager(db_path=db_path)
         loaded_cfg = fav_reloaded.load_config()
         assert loaded_cfg["delay_seconds"] == "4.5"
         assert loaded_cfg["framing_mode"] == "panoramic"
@@ -121,11 +121,48 @@ def test_favorites_and_unlikes_manager():
         assert loaded_cfg["is_fullscreen"] == "True"
 
 
+def test_favorites_export_import_replace_all():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        a = FavoritesManager(db_path=Path(tmpdir) / "a.db")
+        a.add_favorite(os.path.join(tmpdir, "x.jpg"), {"resolution": "10x10", "size_kb": 1.5})
+        a.add_unlike(os.path.join(tmpdir, "y.jpg"))
+        a.save_config({"delay_seconds": 7})
+        xlsx = Path(tmpdir) / "out.xlsx"
+        assert a.export_xlsx(xlsx) == (1, 1)
+
+        # Importar em banco com dados diferentes substitui tudo
+        b = FavoritesManager(db_path=Path(tmpdir) / "b.db")
+        b.add_favorite(os.path.join(tmpdir, "old.jpg"))
+        b.save_config({"framing_mode": "fill"})
+        assert b.import_xlsx(xlsx) == (1, 1)
+        assert b.is_favorite(os.path.join(tmpdir, "x.jpg"))
+        assert b.is_unliked(os.path.join(tmpdir, "y.jpg"))
+        assert not b.is_favorite(os.path.join(tmpdir, "old.jpg"))
+        assert b.load_config() == {"delay_seconds": "7"}
+
+        # Persistido: nova instância enxerga o mesmo estado
+        c = FavoritesManager(db_path=Path(tmpdir) / "b.db")
+        assert (c.favorites_count, c.unlikes_count) == (1, 1)
+
+        # Planilha inválida não altera o banco
+        bad = Path(tmpdir) / "bad.xlsx"
+        import openpyxl
+        wb = openpyxl.Workbook()
+        wb.active.title = "Outra"
+        wb.save(bad)
+        try:
+            c.import_xlsx(bad)
+            assert False, "deveria falhar"
+        except ValueError:
+            pass
+        assert (c.favorites_count, c.unlikes_count) == (1, 1)
+
+
 def test_app_like_unlike_progressive_logic():
     import tkinter as tk
     from slideshow.app import SlideshowApp
     with tempfile.TemporaryDirectory() as tmpdir:
-        excel_path = Path(tmpdir) / "test_app_fav.xlsx"
+        db_path = Path(tmpdir) / "test_app_fav.db"
         img1 = os.path.join(tmpdir, "img1.png")
         Image.new("RGB", (100, 100), color="blue").save(img1)
 
@@ -133,7 +170,7 @@ def test_app_like_unlike_progressive_logic():
         root.withdraw()
         try:
             app = SlideshowApp(root=root, all_image_paths=[img1], delay_seconds=2.0)
-            app.favorites = FavoritesManager(excel_path=excel_path)
+            app.favorites = FavoritesManager(db_path=db_path)
 
             # Estado inicial: neutro
             assert app.favorites.is_favorite(img1) is False

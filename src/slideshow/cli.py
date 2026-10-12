@@ -65,12 +65,41 @@ def main():
         help="Executa rotina rápida de diagnóstico de caminho e Cofre Pessoal e encerra."
     )
     parser.add_argument(
+        "--export-favorites",
+        dest="export_xlsx",
+        metavar="ARQUIVO.xlsx",
+        default=None,
+        help="Exporta favoritos, unlikes e configurações para uma planilha Excel e encerra."
+    )
+    parser.add_argument(
+        "--import-favorites",
+        dest="import_xlsx",
+        metavar="ARQUIVO.xlsx",
+        default=None,
+        help="Importa uma planilha Excel SUBSTITUINDO todo o conteúdo do banco e encerra."
+    )
+    parser.add_argument(
         "-v", "--version",
         action="version",
-        version="Slideshow Pro 1.2.0"
+        version="Slideshow Pro 1.3.0"
     )
 
     args = parser.parse_args()
+
+    if args.export_xlsx or args.import_xlsx:
+        from slideshow.favorites import FavoritesManager
+        fav = FavoritesManager()
+        try:
+            if args.export_xlsx:
+                likes, unlikes = fav.export_xlsx(Path(args.export_xlsx))
+                print(f"Exportado para '{args.export_xlsx}': {likes} favoritos, {unlikes} unlikes.")
+            if args.import_xlsx:
+                likes, unlikes = fav.import_xlsx(Path(args.import_xlsx))
+                print(f"Importado de '{args.import_xlsx}': {likes} favoritos, {unlikes} unlikes.")
+        except Exception as e:
+            print(f"[Erro] {e}")
+            sys.exit(1)
+        sys.exit(0)
 
     if args.check_vault:
         default_vault = str(Path.home() / "OneDrive" / "Cofre Pessoal" / "Outras Imagens")

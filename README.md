@@ -1,6 +1,6 @@
 # Slideshow Pro
 
-Um apresentador de slides moderno, resiliente, modular e extensível para Windows e Linux, com suporte aprofundado ao **Cofre Pessoal (Personal Vault) do OneDrive**, transições audiovisuais cinematográficas e sistema de favoritos em Excel.
+Um apresentador de slides moderno, resiliente, modular e extensível para Windows e Linux, com suporte aprofundado ao **Cofre Pessoal (Personal Vault) do OneDrive**, transições audiovisuais cinematográficas e sistema de favoritos em SQLite com exportação/importação para Excel.
 
 ---
 
@@ -22,15 +22,18 @@ Um apresentador de slides moderno, resiliente, modular e extensível para Window
   - **Panorâmico (Ken Burns Pan & Scan)**: A foto preenche a janela e se move suavemente de uma borda a outra durante o slide.
 - **Histórico Infinito no Modo Aleatório**:
   - O botão de voltar (Seta Esquerda) funciona retroativamente por toda a trilha de fotos exibidas, sem limite.
-- **Sistema de Likes, Unlikes e Favoritos em Excel (.xlsx)**:
-  - Registrado automaticamente na planilha centralizada: `~/slideshow_favoritos.xlsx`.
+- **Sistema de Likes, Unlikes e Favoritos em SQLite**:
+  - Registrado automaticamente no banco `~/slideshow_favoritos.db` (gravação transacional, sem risco de corromper o arquivo).
+  - **Exportar (`Ctrl+E`)**: gera uma planilha `.xlsx` (abas `Favoritos`, `Unlikes`, `Configuracoes`).
+  - **Importar (`Ctrl+I`)**: lê um `.xlsx` e **substitui tudo** (favoritos, unlikes e configurações) após confirmação. Planilha inválida não altera nada.
+  - Via linha de comando: `--export-favorites ARQ.xlsx` e `--import-favorites ARQ.xlsx`.
   - **Like (`L`)**: adiciona aos favoritos. Se a foto possuir Unlike, o primeiro toque cancela o unlike.
   - **Unlike (`U`)**: marca como unlike. Se a foto possuir Like, o primeiro toque desfaz o like.
   - **Ícones de Status Visuais**: exibe ❤️ (Like) ou ❌ (Unlike) no canto superior direito (alternável via tecla **`I`**).
   - **Filtro Trilateral (`F`)**: alterna entre *Todas as Fotos*, *Apenas Favoritas* e *Apenas Unlikes*.
   - **Exclusão em Lote (`Shift+Delete`)**: quando no modo de filtro *Apenas Unlikes*, permite listar e apagar permanentemente todas as fotos com unlike do disco após confirmação segura.
 - **Persistência Automática de Preferências**:
-  - Salva automaticamente as últimas configurações (velocidade, enquadramento, transição, ordem, legenda, tela cheia, fixação no topo e melhoria de baixa resolução) na aba `Configuracoes` da planilha do usuário.
+  - Salva automaticamente as últimas configurações (velocidade, enquadramento, transição, ordem, legenda, tela cheia, fixação no topo e melhoria de baixa resolução) no banco do usuário.
   - Ao abrir o Slideshow novamente, suas preferências são restauradas instantaneamente.
 - **Otimização Inteligente de Fotos em Baixa Resolução (`E`)**:
   - Reescalonamento Lanczos de alta precisão, filtro Unsharp Mask adaptativo, granulação analógica suave (Film Grain) e desfoque de fundo ambiente.

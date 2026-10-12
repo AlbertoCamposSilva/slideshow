@@ -4,7 +4,7 @@ import ctypes
 import random
 import time
 import tkinter as tk
-from tkinter import messagebox, simpledialog
+from tkinter import filedialog, messagebox, simpledialog
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from PIL import ImageTk, Image
@@ -64,7 +64,7 @@ class SlideshowApp:
         self.buffer = RAMImageBuffer(ram_limit_mb=ram_limit_mb, is_vault=self.is_vault)
         self.favorites = FavoritesManager()
 
-        # Carrega configurações previamente salvas na planilha do usuário
+        # Carrega configurações previamente salvas no banco de dados do usuário
         self._load_saved_config()
 
         # Estrutura de navegação e histórico infinito
@@ -173,6 +173,10 @@ class SlideshowApp:
         self.root.bind("<E>", self.toggle_enhancement)
         self.root.bind("<Delete>", self.handle_delete_action)
         self.root.bind("<Shift-Delete>", self.delete_all_unlikes)
+        self.root.bind("<Control-e>", self.export_favorites)
+        self.root.bind("<Control-E>", self.export_favorites)
+        self.root.bind("<Control-i>", self.import_favorites)
+        self.root.bind("<Control-I>", self.import_favorites)
         self.root.bind("<Configure>", self.on_window_resize)
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
 
@@ -231,7 +235,7 @@ class SlideshowApp:
         self.show_toast(f"Cofre: {loaded}/{total} fotos na RAM ({self.buffer.usage_mb:.1f} MB)", duration_ms=2500)
 
     def _load_saved_config(self):
-        """Carrega e aplica as configurações salvas na aba 'Configuracoes' do Excel."""
+        """Carrega e aplica as configurações salvas no banco de dados."""
         cfg = self.favorites.load_config()
         if not cfg:
             return
@@ -283,7 +287,7 @@ class SlideshowApp:
             self.show_status_icons = str(cfg["show_status_icons"]).strip().lower() in ("true", "1", "yes")
 
     def _save_current_config(self):
-        """Persiste as configurações atuais na aba 'Configuracoes' da planilha."""
+        """Persiste as configurações atuais no banco de dados."""
         cfg = {
             "delay_seconds": round(self.delay_ms / 1000.0, 2),
             "framing_mode": self.framing_mode.name.lower(),
@@ -682,7 +686,7 @@ class SlideshowApp:
             pass
 
         self.favorites.add_favorite(path, metadata)
-        self.show_toast("Favoritada! ❤️ Salva no Excel.", duration_ms=1800)
+        self.show_toast("Favoritada! ❤️ Salva.", duration_ms=1800)
         self._update_caption_overlay(path)
 
     def remove_like(self, event=None):
@@ -715,7 +719,7 @@ class SlideshowApp:
             pass
 
         self.favorites.add_unlike(path, metadata)
-        self.show_toast("Marcada com Unlike! ❌ Salva no Excel.", duration_ms=1800)
+        self.show_toast("Marcada com Unlike! ❌ Salvo.", duration_ms=1800)
         self._update_caption_overlay(path)
 
     def toggle_filter(self, event=None):
@@ -758,7 +762,7 @@ class SlideshowApp:
     def delete_all_unlikes(self, event=None):
         """
         Quando (e somente quando) estiver filtrando os unlikes, lista as fotos marcadas,
-        solicita confirmação explícita e, se confirmado, apaga os arquivos do disco e do Excel.
+        solicita confirmação explícita e, se confirmado, apaga os arquivos do disco e do banco de dados.
         """
         if self.filter_mode != "UNLIKES":
             self.show_toast("A exclusão em lote só é permitida no modo de filtro 'Apenas Unlikes'!", duration_ms=2500)
@@ -1003,6 +1007,54 @@ class SlideshowApp:
                 self._cancel_scheduled_jobs()
                 self._render_current_slide()
 
+    def export_favorites(self, event=None):
+        """Exporta o banco de favoritos/unlikes/configurações para uma planilha .xlsx."""
+        dest = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Exportar favoritos para Excel",
+            defaultextension=".xlsx",
+            initialfile="slideshow_favoritos.xlsx",
+            filetypes=[("Planilha Excel", "*.xlsx")],
+        )
+        if not dest:
+            return "break"
+        try:
+            likes, unlikes = self.favorites.export_xlsx(Path(dest))
+        except Exception as e:
+            messagebox.showerror("Erro ao exportar", str(e), parent=self.root)
+            return "break"
+        self.show_toast(f"Exportado: {likes} ❤️ / {unlikes} ❌", duration_ms=2500)
+        return "break"
+
+    def import_favorites(self, event=None):
+        """Importa uma planilha .xlsx substituindo TODO o conteúdo atual do banco."""
+        src = filedialog.askopenfilename(
+            parent=self.root,
+            title="Importar favoritos de Excel",
+            filetypes=[("Planilha Excel", "*.xlsx")],
+        )
+        if not src:
+            return "break"
+        if not messagebox.askyesno(
+            "Confirmar importação",
+            "A importação SUBSTITUI todos os favoritos, unlikes e configurações atuais "
+            "pelo conteúdo da planilha.\n\nDeseja continuar?",
+            icon="warning",
+            parent=self.root,
+        ):
+            return "break"
+        try:
+            likes, unlikes = self.favorites.import_xlsx(Path(src))
+        except Exception as e:
+            messagebox.showerror("Erro ao importar", f"Nada foi alterado.\n\n{e}", parent=self.root)
+            return "break"
+
+        self._load_saved_config()
+        self._apply_sort_order(reset_history=True)
+        self.next_slide()
+        self.show_toast(f"Importado: {likes} ❤️ / {unlikes} ❌", duration_ms=2500)
+        return "break"
+
     def toggle_help_window(self, event=None):
         """Abre ou fecha a janela de ajuda (toggle). Se já estiver aberta, fecha."""
         if self.help_window and self.help_window.winfo_exists():
@@ -1013,7 +1065,7 @@ class SlideshowApp:
         help_win = tk.Toplevel(self.root)
         self.help_window = help_win
         help_win.title("Atalhos e Ajuda do Slideshow")
-        help_win.geometry("570x610")
+        help_win.geometry("570x660")
         help_win.configure(bg="#1E1E1E")
         help_win.resizable(False, False)
         help_win.attributes("-topmost", True)
@@ -1050,6 +1102,8 @@ class SlideshowApp:
             ("F", "Alternar Filtro (Todas -> Apenas Favoritas -> Apenas Unlikes)"),
             ("I", "Alternar exibição dos Ícones de Status (❤️ / ❌)"),
             ("Shift+Delete", "Apagar do disco todas as fotos com Unlike (no filtro Unlikes)"),
+            ("Ctrl+E", "Exportar favoritos/unlikes/configurações para Excel (.xlsx)"),
+            ("Ctrl+I", "Importar de Excel (.xlsx) — substitui TUDO no banco"),
             ("E", "Alternar Otimização Baixa Resolução"),
             ("C", "Alternar Legenda (Oculta / Compacta / Detalhada)"),
             ("M", "Modo Enquadramento (Ajustar / Zoom / Panorâmico)"),
